@@ -1,0 +1,179 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------
+    // Global Hardened Helpers
+    // ---------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidContestId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 32 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isOptionalNumber(data, key, minVal, maxVal) {
+      return !(key in data) || ((data[key] is int || data[key] is float) && data[key] >= minVal && data[key] <= maxVal);
+    }
+
+    // ---------------------------------------------------------
+    // Validation Blueprints
+    // ---------------------------------------------------------
+    function isValidProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'cfHandle', 'isPublic', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'photoUrl', 'cfHandle', 'cfRating', 'cfRank', 'bio', 'isPublic', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && isOptionalString(data, 'photoUrl', 500)
+        && data.cfHandle is string && data.cfHandle.size() >= 1 && data.cfHandle.size() <= 64
+        && isOptionalNumber(data, 'cfRating', 0, 6000)
+        && isOptionalString(data, 'cfRank', 40)
+        && isOptionalString(data, 'bio', 240)
+        && data.isPublic is bool
+        && data.updatedAt == request.time;
+    }
+
+    function isValidPrivateSettings(data, userId) {
+      return data.keys().hasAll(['uid', 'theme', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'theme', 'activeHandle', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isOptionalString(data, 'email', 200)
+        && data.theme in ['light', 'dark']
+        && isOptionalString(data, 'activeHandle', 64)
+        && data.updatedAt == request.time;
+    }
+
+    function isValidBookmark(data, userId) {
+      return data.keys().hasAll(['ownerId', 'problemKey', 'contestId', 'index', 'name', 'status', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'problemKey', 'contestId', 'index', 'name', 'rating', 'status', 'updatedAt'])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && data.problemKey is string && data.problemKey.size() >= 1 && data.problemKey.size() <= 160
+        && (data.contestId is int || data.contestId is float) && data.contestId >= 1 && data.contestId <= 1000000
+        && data.index is string && data.index.size() >= 1 && data.index.size() <= 16
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && isOptionalNumber(data, 'rating', 0, 6000)
+        && data.status in ['saved', 'snoozed']
+        && data.updatedAt == request.time;
+    }
+
+    function isValidContestRsvp(data, contestId, userId) {
+      return data.keys().hasAll(['userId', 'contestId', 'cfHandle', 'displayName', 'status', 'isPublic', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'contestId', 'cfHandle', 'displayName', 'cfRating', 'status', 'isPublic', 'updatedAt'])
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && isValidContestId(data.contestId)
+        && data.contestId == contestId
+        && data.cfHandle is string && data.cfHandle.size() >= 1 && data.cfHandle.size() <= 64
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && isOptionalNumber(data, 'cfRating', 0, 6000)
+        && data.status in ['competing', 'watching']
+        && data.isPublic is bool
+        && data.updatedAt == request.time;
+    }
+
+    // ---------------------------------------------------------
+    // 1. Personal Profile (/profiles/{userId}) - Owner-only
+    // ---------------------------------------------------------
+    match /profiles/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isVerifiedUser() && isValidId(userId) && isOwner(userId) && isValidProfile(incoming(), userId);
+      allow update: if isVerifiedUser() && isValidId(userId) && isOwner(userId)
+        && isValidProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'cfHandle', 'cfRating', 'cfRank', 'bio', 'isPublic', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(userId) && isOwner(userId);
+    }
+
+    // ---------------------------------------------------------
+    // 2. Private Settings (/users/{userId}/private/settings) - Owner-only PII
+    // ---------------------------------------------------------
+    match /users/{userId}/private/{docId} {
+      allow get: if isValidId(userId) && docId == 'settings' && isOwner(userId);
+      allow list: if false;
+      allow create: if isVerifiedUser() && isValidId(userId) && docId == 'settings' && isOwner(userId)
+        && isValidPrivateSettings(incoming(), userId);
+      allow update: if isVerifiedUser() && isValidId(userId) && docId == 'settings' && isOwner(userId)
+        && isValidPrivateSettings(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'theme', 'activeHandle', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(userId) && docId == 'settings' && isOwner(userId);
+    }
+
+    // ---------------------------------------------------------
+    // 3. Personal Practice Bookmarks (/users/{userId}/bookmarks/{itemId}) - Owner-only
+    // ---------------------------------------------------------
+    match /users/{userId}/bookmarks/{itemId} {
+      allow get: if isValidId(userId) && isValidId(itemId) && isOwner(userId);
+      allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() && isValidId(userId) && isValidId(itemId) && isOwner(userId)
+        && isValidBookmark(incoming(), userId);
+      allow update: if isVerifiedUser() && isValidId(userId) && isValidId(itemId) && isOwner(userId)
+        && isValidBookmark(incoming(), userId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().problemKey == existing().problemKey
+        && incoming().diff(existing()).affectedKeys().hasOnly(['contestId', 'index', 'name', 'rating', 'status', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(itemId) && isOwner(userId);
+    }
+
+    // ---------------------------------------------------------
+    // 4. Personal Contest Plans (/contests/{contestId}/rsvps/{userId}) - Owner-only
+    // ---------------------------------------------------------
+    match /contests/{contestId}/rsvps/{userId} {
+      allow get: if isValidContestId(contestId) && isValidId(userId) && isOwner(userId);
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isVerifiedUser() && isValidContestId(contestId) && isValidId(userId)
+        && isOwner(userId)
+        && isValidContestRsvp(incoming(), contestId, userId);
+
+      allow update: if isVerifiedUser() && isValidContestId(contestId) && isValidId(userId)
+        && isOwner(userId)
+        && isValidContestRsvp(incoming(), contestId, userId)
+        && incoming().userId == existing().userId
+        && incoming().contestId == existing().contestId
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'cfHandle', 'displayName', 'cfRating', 'status', 'isPublic', 'updatedAt'
+        ]);
+
+      allow delete: if isVerifiedUser() && isValidContestId(contestId) && isValidId(userId) && isOwner(userId);
+    }
+  }
+}

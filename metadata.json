@@ -1,0 +1,8 @@
+{
+  "name": "CodeGram",
+  "description": "Codeforces analytics dashboard for tracking daily practice consistency, topic struggles, submission history, and difficulty rating progression via the official Codeforces API.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

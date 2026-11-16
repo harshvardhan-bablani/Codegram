@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "Personal Codeforces profile summary synced for the signed-in user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "cfHandle": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "cfRating": { "type": "number" },
+        "cfRank": { "type": "string", "maxLength": 40 },
+        "bio": { "type": "string", "maxLength": 240 },
+        "isPublic": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "cfHandle", "isPublic", "updatedAt"]
+    },
+    "PrivateSettings": {
+      "title": "PrivateSettings",
+      "description": "Owner-only user settings and isolated PII (email).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 200 },
+        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "activeHandle": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "theme", "updatedAt"]
+    },
+    "ProblemBookmark": {
+      "title": "ProblemBookmark",
+      "description": "Personal saved practice queue or snoozed leftover problem state.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "problemKey": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "contestId": { "type": "number" },
+        "index": { "type": "string", "minLength": 1, "maxLength": 16 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "rating": { "type": "number" },
+        "status": { "type": "string", "enum": ["saved", "snoozed"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "problemKey", "contestId", "index", "name", "status", "updatedAt"]
+    },
+    "ContestRsvp": {
+      "title": "ContestRsvp",
+      "description": "Personal contest reminder plan for an upcoming Codeforces round.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "contestId": { "type": "string", "maxLength": 32, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "cfHandle": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "cfRating": { "type": "number" },
+        "status": { "type": "string", "enum": ["competing", "watching"] },
+        "isPublic": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "contestId", "cfHandle", "displayName", "status", "isPublic", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/profiles/{userId}": {
+      "schema": { "$ref": "#/entities/PublicProfile" },
+      "description": "Owner-only synced Codeforces identity for the user."
+    },
+    "/users/{userId}/private/settings": {
+      "schema": { "$ref": "#/entities/PrivateSettings" },
+      "description": "Owner-only user settings and email PII."
+    },
+    "/users/{userId}/bookmarks/{itemId}": {
+      "schema": { "$ref": "#/entities/ProblemBookmark" },
+      "description": "Personal saved practice problems and snoozed leftover problems."
+    },
+    "/contests/{contestId}/rsvps/{userId}": {
+      "schema": { "$ref": "#/entities/ContestRsvp" },
+      "description": "Personal reminder commitment for upcoming Codeforces contests."
+    }
+  }
+}
