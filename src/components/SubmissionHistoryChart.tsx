@@ -19,7 +19,6 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
 
   const buckets = useMemo(() => {
     const raw = granularity === 'week' ? weekly : monthly;
-    // Cap displayed bars to keep visual density crisp on very long histories
     if (granularity === 'week' && raw.length > 52) {
       return raw.slice(-52);
     }
@@ -29,8 +28,13 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
     return raw;
   }, [granularity, weekly, monthly]);
 
-  const height = 260;
-  const pad = { top: 18, right: 16, bottom: 32, left: 42 };
+  const height = 240;
+  const pad = {
+    top: 18,
+    right: width < 420 ? 10 : 16,
+    bottom: 30,
+    left: width < 420 ? 34 : 42,
+  };
   const plotW = Math.max(120, width - pad.left - pad.right);
   const plotH = height - pad.top - pad.bottom;
 
@@ -48,9 +52,10 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
   const activeBucket = hoverIdx !== null && buckets[hoverIdx] ? buckets[hoverIdx] : null;
 
   const xLabelStep = useMemo(() => {
-    if (buckets.length <= 8) return 1;
-    return Math.ceil(buckets.length / 8);
-  }, [buckets.length]);
+    const maxLabels = width < 420 ? 4 : 8;
+    if (buckets.length <= maxLabels) return 1;
+    return Math.ceil(buckets.length / maxLabels);
+  }, [buckets.length, width]);
 
   const barStep = buckets.length > 0 ? plotW / buckets.length : plotW;
   const barWidth = Math.max(4, Math.min(26, barStep * 0.68));
@@ -67,30 +72,25 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
   }, [buckets, barStep, maxTotal, pad.left, pad.top, plotH]);
 
   return (
-    <section className="bg-white dark:bg-[#1B1917] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-5">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-        <div>
-          <h2 className="font-display text-base font-semibold text-stone-900 dark:text-stone-100">
-            Submission History &amp; Verdict Breakdown
-          </h2>
-          <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-            Stacked submission verdicts paired with unique accepted problems per period
-          </p>
-        </div>
+    <section className="bg-white dark:bg-[#121824] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3.5 sm:mb-4">
+        <h2 className="font-display text-base font-semibold text-slate-900 dark:text-slate-100">
+          Submissions
+        </h2>
 
         <div className="flex items-center gap-3">
           <div
             role="group"
             aria-label="Submission timeline granularity"
-            className="inline-flex items-center p-1 bg-stone-100 dark:bg-[#141210] border border-stone-200 dark:border-stone-800 rounded-xl"
+            className="inline-flex items-center p-1 bg-slate-100 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-800 rounded-xl"
           >
             <button
               type="button"
               onClick={() => setGranularity('week')}
               className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                 granularity === 'week'
-                  ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               Weekly
@@ -100,8 +100,8 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
               onClick={() => setGranularity('month')}
               className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                 granularity === 'month'
-                  ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               Monthly
@@ -112,47 +112,43 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
 
       {/* Live readout strip */}
       <div className="mb-3 min-h-[24px] flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex flex-wrap items-center gap-4 text-stone-600 dark:text-stone-400">
+        <div className="flex flex-wrap items-center gap-4 text-slate-600 dark:text-slate-400">
           <span className="inline-flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-xs bg-emerald-600 dark:bg-emerald-500 inline-block" />
-            Accepted
+            AC
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-rose-500 dark:bg-rose-500 inline-block" />
-            Wrong Answer
+            <span className="w-2.5 h-2.5 rounded-xs bg-red-500 dark:bg-red-500 inline-block" />
+            WA
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-xs bg-amber-500 dark:bg-amber-400 inline-block" />
             TLE
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-stone-400 dark:bg-stone-600 inline-block" />
-            Other (RE/MLE/CE)
+            <span className="w-2.5 h-2.5 rounded-xs bg-slate-400 dark:bg-slate-600 inline-block" />
+            Other
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-blue-600 dark:bg-blue-400 inline-block" />
-            Unique Solved
+            <span className="w-3 h-0.5 bg-[#0047CC] dark:bg-blue-400 inline-block" />
+            Solved
           </span>
         </div>
 
-        <div className="font-mono tabular-nums text-stone-700 dark:text-stone-200">
-          {activeBucket ? (
+        <div className="font-mono tabular-nums text-slate-700 dark:text-slate-200">
+          {activeBucket && (
             <span>
               {activeBucket.label}: {activeBucket.total} subs ({activeBucket.ok} AC ·{' '}
-              {activeBucket.wa} WA · {activeBucket.tle} TLE · {activeBucket.uniqueSolved} unique solved)
-            </span>
-          ) : (
-            <span className="font-sans text-stone-400 dark:text-stone-500">
-              Hover bars for period totals
+              {activeBucket.wa} WA · {activeBucket.tle} TLE · {activeBucket.uniqueSolved} solved)
             </span>
           )}
         </div>
       </div>
 
       {loading ? (
-        <div className="h-[260px] rounded-xl bg-stone-100 dark:bg-stone-800/50 animate-pulse" />
+        <div className="h-[260px] rounded-xl bg-slate-100 dark:bg-slate-800/50 animate-pulse" />
       ) : buckets.length === 0 ? (
-        <div className="h-[260px] flex items-center justify-center border border-dashed border-stone-200 dark:border-stone-800 rounded-xl text-sm text-stone-500 dark:text-stone-400">
+        <div className="h-[260px] flex items-center justify-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-500 dark:text-slate-400">
           No submissions found in this timeframe.
         </div>
       ) : (
@@ -164,7 +160,6 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
             className="overflow-visible select-none"
             onMouseLeave={() => setHoverIdx(null)}
           >
-            {/* Horizontal grid lines */}
             {yTicks.map((tick) => {
               const y = pad.top + plotH - (tick / Math.max(1, maxTotal)) * plotH;
               return (
@@ -174,14 +169,14 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
                     x2={width - pad.right}
                     y1={y}
                     y2={y}
-                    className="stroke-stone-100 dark:stroke-stone-800"
+                    className="stroke-slate-100 dark:stroke-slate-800"
                     strokeWidth={1}
                   />
                   <text
                     x={pad.left - 8}
                     y={y + 4}
                     textAnchor="end"
-                    className="fill-stone-400 dark:fill-stone-500 text-[10px] font-mono"
+                    className="fill-slate-400 dark:fill-slate-500 text-[10px] font-mono"
                   >
                     {tick}
                   </text>
@@ -189,7 +184,6 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
               );
             })}
 
-            {/* Stacked bars */}
             {buckets.map((b, i) => {
               const x = pad.left + i * barStep + (barStep - barWidth) / 2;
               const isHovered = hoverIdx === i;
@@ -210,13 +204,12 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
                   onMouseEnter={() => setHoverIdx(i)}
                   className="cursor-pointer"
                 >
-                  {/* Full hover hit zone */}
                   <rect
                     x={pad.left + i * barStep}
                     y={pad.top}
                     width={barStep}
                     height={plotH}
-                    fill={isHovered ? 'rgba(225, 29, 72, 0.06)' : 'transparent'}
+                    fill={isHovered ? 'rgba(37, 99, 235, 0.08)' : 'transparent'}
                   />
 
                   {hOk > 0 && (
@@ -237,7 +230,7 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
                       width={barWidth}
                       height={hWa}
                       rx={1}
-                      className="fill-rose-500 dark:fill-rose-500"
+                      className="fill-red-500 dark:fill-red-500"
                       opacity={hoverIdx === null || isHovered ? 0.88 : 0.4}
                     />
                   )}
@@ -259,7 +252,7 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
                       width={barWidth}
                       height={hOther}
                       rx={1}
-                      className="fill-stone-400 dark:fill-stone-600"
+                      className="fill-slate-400 dark:fill-slate-600"
                       opacity={hoverIdx === null || isHovered ? 0.85 : 0.35}
                     />
                   )}
@@ -269,7 +262,7 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
                       x={pad.left + i * barStep + barStep / 2}
                       y={height - 10}
                       textAnchor="middle"
-                      className="fill-stone-400 dark:fill-stone-500 text-[10px] font-mono"
+                      className="fill-slate-400 dark:fill-slate-500 text-[10px] font-mono"
                     >
                       {b.label}
                     </text>
@@ -278,12 +271,11 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
               );
             })}
 
-            {/* Unique solved trend overlay */}
             {acLinePath && (
               <path
                 d={acLinePath}
                 fill="none"
-                className="stroke-blue-600 dark:stroke-blue-400 pointer-events-none"
+                className="stroke-[#0047CC] dark:stroke-blue-400 pointer-events-none"
                 strokeWidth={2}
                 strokeLinejoin="round"
               />
@@ -298,7 +290,7 @@ export const SubmissionHistoryChart: React.FC<SubmissionHistoryChartProps> = ({
                   (buckets[hoverIdx].uniqueSolved / Math.max(1, maxTotal)) * plotH
                 }
                 r={4}
-                className="fill-blue-600 dark:fill-blue-400 stroke-white dark:stroke-[#1B1917] pointer-events-none"
+                className="fill-[#0047CC] dark:fill-blue-400 stroke-white dark:stroke-[#121824] pointer-events-none"
                 strokeWidth={2}
               />
             )}

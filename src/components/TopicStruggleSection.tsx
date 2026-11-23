@@ -12,7 +12,6 @@ interface TopicStruggleSectionProps {
   onChangeTimeframe?: (tf: TimeframeKey) => void;
   onSelectTopic: (tag: string | null) => void;
   onPracticeTopic?: (tag: string) => void;
-  onViewLeftoversTopic?: (tag: string) => void;
   loading: boolean;
 }
 
@@ -35,7 +34,6 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
   onChangeTimeframe,
   onSelectTopic,
   onPracticeTopic,
-  onViewLeftoversTopic,
   loading,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
@@ -102,7 +100,6 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
       .filter((t) => t.attemptedProblems >= 2)
       .sort((a, b) => b.struggleScore - a.struggleScore || b.unsolvedProblems - a.unsolvedProblems);
 
-    // Combine high-friction attempted topics + uncovered core topics into Weakest Highlight
     const combinedWeak: TopicStats[] = [];
     for (const t of attemptedWeak) {
       if (t.struggleScore >= 40 && combinedWeak.length < 3) {
@@ -146,10 +143,10 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
 
   const getStatusMeta = (t: TopicStats) => {
     if (t.isUncovered || t.attemptedProblems === 0) {
-      return { label: 'Uncovered (0 tried)', colorClass: 'text-rose-600 dark:text-rose-400' };
+      return { label: 'Uncovered (0 tried)', colorClass: 'text-red-600 dark:text-red-400' };
     }
     if (t.struggleScore >= 55) {
-      return { label: 'Needs Practice', colorClass: 'text-rose-600 dark:text-rose-400' };
+      return { label: 'Needs Practice', colorClass: 'text-red-600 dark:text-red-400' };
     }
     if (t.struggleScore >= 35) {
       return { label: 'Moderate Friction', colorClass: 'text-amber-600 dark:text-amber-400' };
@@ -193,38 +190,32 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
     ? orderedVisualTopics
     : orderedVisualTopics.slice(0, 15);
 
-  // SVG chart dimensions for Visual Breakdown
   const rowH = 38;
   const chartTop = 26;
-  const chartLeft = svgWidth < 560 ? 130 : 185;
-  const chartRight = svgWidth < 560 ? 78 : 165;
-  const barTrackW = Math.max(100, svgWidth - chartLeft - chartRight);
+  const chartLeft = svgWidth < 460 ? 108 : svgWidth < 560 ? 130 : 185;
+  const chartRight = svgWidth < 460 ? 48 : svgWidth < 560 ? 78 : 165;
+  const barTrackW = Math.max(90, svgWidth - chartLeft - chartRight);
   const svgHeight = chartTop + displayedVisual.length * rowH + 14;
 
   return (
     <section
       id="topics"
-      className="bg-white dark:bg-[#1B1917] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-5"
+      className="bg-white dark:bg-[#121824] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5"
     >
       {/* Header & Top Mode Switcher */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-5">
         <div>
-          <h2 className="font-display text-lg font-semibold text-stone-900 dark:text-stone-100">
-            Topic Mastery &amp; Weaknesses
+          <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
+            Topic Mastery
           </h2>
-          <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-            {viewMode === 'visual'
-              ? 'Visual breakdown of clean solves, retried problems, stuck blockers, and uncovered core topics.'
-              : 'Sortable spreadsheet of all topic attempt counts, first-try rates, and average difficulty.'}
-          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 min-w-0">
           {timeframe && onChangeTimeframe && (
             <div
               role="group"
               aria-label="Topics timeframe"
-              className="inline-flex items-center p-1 bg-stone-100 dark:bg-[#141210] border border-stone-200 dark:border-stone-800 rounded-xl"
+              className="max-w-full overflow-x-auto no-scrollbar inline-flex items-center p-1 bg-slate-100 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-800 rounded-xl"
             >
               {(
                 [
@@ -240,8 +231,8 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                   onClick={() => onChangeTimeframe(tf.key)}
                   className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                     timeframe === tf.key
-                      ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
                   {tf.label}
@@ -254,7 +245,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
           <div
             role="tablist"
             aria-label="Topic view mode"
-            className="inline-flex items-center p-1 bg-stone-100 dark:bg-[#141210] border border-stone-200 dark:border-stone-800 rounded-xl"
+            className="max-w-full overflow-x-auto no-scrollbar inline-flex items-center p-1 bg-slate-100 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-800 rounded-xl"
           >
             <button
               type="button"
@@ -263,11 +254,11 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
               onClick={() => setViewMode('visual')}
               className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                 viewMode === 'visual'
-                  ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              Visual Breakdown
+              Visual
             </button>
             <button
               type="button"
@@ -276,11 +267,11 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
               onClick={() => setViewMode('table')}
               className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                 viewMode === 'table'
-                  ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              Metrics Table
+              Table
             </button>
           </div>
 
@@ -288,10 +279,10 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
           <div
             role="group"
             aria-label="Topic scope filter"
-            className="inline-flex items-center p-1 bg-stone-100 dark:bg-[#141210] border border-stone-200 dark:border-stone-800 rounded-xl"
+            className="max-w-full overflow-x-auto no-scrollbar inline-flex items-center p-1 bg-slate-100 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-800 rounded-xl"
           >
             {[
-              { val: 0, label: 'All + Uncovered' },
+              { val: 0, label: 'All' },
               { val: 1, label: 'Attempted' },
               { val: 5, label: '5+ tried' },
             ].map((opt) => (
@@ -301,8 +292,8 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                 onClick={() => setMinAttempts(opt.val)}
                 className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                   minAttempts === opt.val
-                    ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
                 {opt.label}
@@ -314,7 +305,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
             type="button"
             onClick={() => exportTopicStrugglesCsv(handle, eligibleTopics)}
             disabled={eligibleTopics.length === 0}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
           >
             <Download className="w-3.5 h-3.5" />
             Export CSV
@@ -323,9 +314,9 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
       </div>
 
       {loading ? (
-        <div className="h-[360px] rounded-xl bg-stone-100 dark:bg-stone-800/50 animate-pulse" />
+        <div className="h-[360px] rounded-xl bg-slate-100 dark:bg-slate-800/50 animate-pulse" />
       ) : eligibleTopics.length === 0 ? (
-        <div className="h-[220px] flex items-center justify-center border border-dashed border-stone-200 dark:border-stone-800 rounded-xl text-sm text-stone-500 dark:text-stone-400">
+        <div className="h-[220px] flex items-center justify-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-500 dark:text-slate-400">
           No topic tag data available in this timeframe.
         </div>
       ) : viewMode === 'visual' ? (
@@ -334,14 +325,11 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
           {/* Spotlight Cards: Weak & Uncovered vs Strongest */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Weak & Uncovered */}
-            <div className="border border-stone-200/80 dark:border-stone-800 rounded-2xl p-4 bg-stone-50/70 dark:bg-[#141210]/60">
+            <div className="border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 bg-slate-50/70 dark:bg-[#0E131D]/70">
               <div className="flex items-center justify-between gap-2 mb-3">
-                <h3 className="text-xs font-semibold text-rose-700 dark:text-rose-400">
-                  Weak &amp; Uncovered Topics ({uncoveredList.length} uncovered)
+                <h3 className="text-xs font-semibold text-red-700 dark:text-red-400">
+                  Weak Topics ({uncoveredList.length} uncovered)
                 </h3>
-                <span className="text-[11px] text-stone-400 dark:text-stone-500">
-                  Top areas to train next
-                </span>
               </div>
 
               <div className="space-y-2.5">
@@ -354,40 +342,31 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                   return (
                     <div
                       key={t.tag}
-                      className={`p-3 rounded-xl border transition-colors bg-white dark:bg-[#1B1917] ${
+                      className={`p-3 rounded-xl border transition-colors bg-white dark:bg-[#121824] ${
                         isSelected
-                          ? 'border-rose-500 dark:border-rose-500'
-                          : 'border-stone-200/80 dark:border-stone-800'
+                          ? 'border-blue-500 dark:border-blue-500'
+                          : 'border-slate-200/80 dark:border-slate-800'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <button
                           type="button"
                           onClick={() => onSelectTopic(isSelected ? null : t.tag)}
-                          className="font-display text-sm font-semibold text-stone-900 dark:text-stone-100 capitalize hover:text-rose-600 dark:hover:text-rose-400 text-left"
+                          className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100 capitalize hover:text-[#0047CC] dark:hover:text-blue-400 text-left"
                         >
                           {t.tag}
                         </button>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className="font-mono text-xs text-stone-600 dark:text-stone-400 tabular-nums">
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <span className="font-mono text-xs text-slate-600 dark:text-slate-400 tabular-nums">
                             {uncovered
                               ? '0 tried'
-                              : `${t.solvedProblems}/${t.attemptedProblems} solved`}
+                              : `${t.solvedProblems}/${t.attemptedProblems}`}
                           </span>
-                          {onViewLeftoversTopic && t.unsolvedProblems > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => onViewLeftoversTopic(t.tag)}
-                              className="text-[11px] font-medium text-stone-600 dark:text-stone-300 hover:text-rose-600 dark:hover:text-rose-400 hover:underline whitespace-nowrap"
-                            >
-                              {t.unsolvedProblems} leftover
-                            </button>
-                          )}
                           {onPracticeTopic && (
                             <button
                               type="button"
                               onClick={() => onPracticeTopic(t.tag)}
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline whitespace-nowrap"
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047CC] dark:text-blue-400 hover:underline whitespace-nowrap"
                             >
                               Practice <ArrowRight className="w-3 h-3" />
                             </button>
@@ -395,9 +374,9 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                         </div>
                       </div>
 
-                      <div className="mt-2 h-2 w-full rounded-full overflow-hidden bg-stone-100 dark:bg-stone-800 flex">
+                      <div className="mt-2 h-2 w-full rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800 flex">
                         {uncovered ? (
-                          <div className="h-full w-full bg-rose-200 dark:bg-rose-950/70" />
+                          <div className="h-full w-full bg-red-200 dark:bg-red-950/70" />
                         ) : (
                           <>
                             {pct.firstPct > 0 && (
@@ -408,13 +387,13 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                             )}
                             {pct.retriedPct > 0 && (
                               <div
-                                className="h-full bg-blue-500"
+                                className="h-full bg-blue-600"
                                 style={{ width: `${pct.retriedPct}%` }}
                               />
                             )}
                             {pct.stuckPct > 0 && (
                               <div
-                                className="h-full bg-rose-500"
+                                className="h-full bg-red-500"
                                 style={{ width: `${pct.stuckPct}%` }}
                               />
                             )}
@@ -422,17 +401,13 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                         )}
                       </div>
 
-                      <p className="mt-1.5 text-[11px] text-stone-500 dark:text-stone-400 tabular-nums">
+                      <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
                         {uncovered
-                          ? 'Uncovered core topic — no attempts recorded yet'
+                          ? '0 attempts'
                           : `${
-                              t.unsolvedProblems > 0
-                                ? `${t.unsolvedProblems} still stuck`
-                                : 'All resolved after retries'
-                            } · ${t.avgAttemptsToAc.toFixed(1)} avg tries${
-                              t.dominantFailureVerdict !== 'NONE'
-                                ? ` · Mostly ${dominant.label}`
-                                : ''
+                              t.unsolvedProblems > 0 ? `${t.unsolvedProblems} stuck` : 'Resolved'
+                            } · ${t.avgAttemptsToAc.toFixed(1)} tries${
+                              t.dominantFailureVerdict !== 'NONE' ? ` · ${dominant.label}` : ''
                             }`}
                       </p>
                     </div>
@@ -442,18 +417,15 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
             </div>
 
             {/* Strongest Topics */}
-            <div className="border border-stone-200/80 dark:border-stone-800 rounded-2xl p-4 bg-stone-50/70 dark:bg-[#141210]/60">
+            <div className="border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 bg-slate-50/70 dark:bg-[#0E131D]/70">
               <div className="flex items-center justify-between gap-2 mb-3">
                 <h3 className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                  Strongest Topics (Highest Clean Solve Rate)
+                  Strongest Topics
                 </h3>
-                <span className="text-[11px] text-stone-400 dark:text-stone-500">
-                  Your reliable strengths
-                </span>
               </div>
 
               {strongestHighlight.length === 0 ? (
-                <div className="h-40 flex items-center justify-center text-xs text-stone-500 dark:text-stone-400">
+                <div className="h-40 flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
                   Solve more topics to highlight your strongest categories.
                 </div>
               ) : (
@@ -464,26 +436,26 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                     return (
                       <div
                         key={t.tag}
-                        className={`p-3 rounded-xl border transition-colors bg-white dark:bg-[#1B1917] ${
+                        className={`p-3 rounded-xl border transition-colors bg-white dark:bg-[#121824] ${
                           isSelected
-                            ? 'border-rose-500 dark:border-rose-500'
-                            : 'border-stone-200/80 dark:border-stone-800'
+                            ? 'border-blue-500 dark:border-blue-500'
+                            : 'border-slate-200/80 dark:border-slate-800'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <button
                             type="button"
                             onClick={() => onSelectTopic(isSelected ? null : t.tag)}
-                            className="font-display text-sm font-semibold text-stone-900 dark:text-stone-100 capitalize hover:text-rose-600 dark:hover:text-rose-400 text-left"
+                            className="font-display text-sm font-semibold text-slate-900 dark:text-slate-100 capitalize hover:text-[#0047CC] dark:hover:text-blue-400 text-left"
                           >
                             {t.tag}
                           </button>
-                          <span className="font-mono text-xs text-stone-600 dark:text-stone-400 tabular-nums">
+                          <span className="font-mono text-xs text-slate-600 dark:text-slate-400 tabular-nums">
                             {t.solvedProblems}/{t.attemptedProblems} solved
                           </span>
                         </div>
 
-                        <div className="mt-2 h-2 w-full rounded-full overflow-hidden bg-stone-100 dark:bg-stone-800 flex">
+                        <div className="mt-2 h-2 w-full rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800 flex">
                           {pct.firstPct > 0 && (
                             <div
                               className="h-full bg-emerald-500"
@@ -492,23 +464,21 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                           )}
                           {pct.retriedPct > 0 && (
                             <div
-                              className="h-full bg-blue-500"
+                              className="h-full bg-blue-600"
                               style={{ width: `${pct.retriedPct}%` }}
                             />
                           )}
                           {pct.stuckPct > 0 && (
                             <div
-                              className="h-full bg-rose-500"
+                              className="h-full bg-red-500"
                               style={{ width: `${pct.stuckPct}%` }}
                             />
                           )}
                         </div>
 
-                        <p className="mt-1.5 text-[11px] text-stone-500 dark:text-stone-400 tabular-nums">
-                          {Math.round(t.firstTryRate)}% solved on 1st try ·{' '}
-                          {t.avgSolvedRating
-                            ? `Avg solved rating ${t.avgSolvedRating}`
-                            : 'Unrated problems'}
+                        <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                          {Math.round(t.firstTryRate)}% 1st-try
+                          {t.avgSolvedRating ? ` · Avg ${t.avgSolvedRating}` : ''}
                         </p>
                       </div>
                     );
@@ -520,33 +490,33 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
 
           {/* SVG Horizontal Stacked Bar Chart */}
           <div>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 mb-3 border-b border-stone-100 dark:border-stone-800/80">
-              <div className="flex flex-wrap items-center gap-4 text-xs text-stone-600 dark:text-stone-400">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 mb-3 border-b border-slate-100 dark:border-slate-800/80">
+              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600 dark:text-slate-400">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block" />
-                  1st-try AC
+                  1st-try
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-xs bg-blue-500 inline-block" />
-                  Solved w/ retries
+                  <span className="w-2.5 h-2.5 rounded-xs bg-blue-600 inline-block" />
+                  Retried
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-xs bg-rose-500 inline-block" />
-                  Still stuck
+                  <span className="w-2.5 h-2.5 rounded-xs bg-red-500 inline-block" />
+                  Stuck
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-xs bg-rose-200 dark:bg-rose-900/70 inline-block" />
-                  Uncovered (0 tried)
+                  <span className="w-2.5 h-2.5 rounded-xs bg-red-200 dark:bg-red-900/70 inline-block" />
+                  Uncovered
                 </span>
               </div>
 
               <div className="flex items-center gap-2 text-xs">
-                <span className="text-stone-500 dark:text-stone-400">Sort:</span>
-                <div className="inline-flex items-center p-0.5 bg-stone-100 dark:bg-[#141210] border border-stone-200 dark:border-stone-800 rounded-xl">
+                <span className="text-slate-500 dark:text-slate-400">Sort:</span>
+                <div className="inline-flex items-center p-0.5 bg-slate-100 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-800 rounded-xl">
                   {[
-                    { key: 'weakest', label: 'Weakest First' },
-                    { key: 'strongest', label: 'Strongest First' },
-                    { key: 'volume', label: 'Most Practiced' },
+                    { key: 'weakest', label: 'Weakest' },
+                    { key: 'strongest', label: 'Strongest' },
+                    { key: 'volume', label: 'Most Tried' },
                   ].map((ord) => (
                     <button
                       key={ord.key}
@@ -554,8 +524,8 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                       onClick={() => setVisualOrder(ord.key as VisualOrder)}
                       className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-colors whitespace-nowrap ${
                         visualOrder === ord.key
-                          ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                          : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                       }`}
                     >
                       {ord.label}
@@ -565,48 +535,44 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
               </div>
             </div>
 
-            {/* Plain-English Live Inspector Line */}
-            <div className="mb-2 min-h-[20px] flex items-center justify-between gap-2 text-xs">
-              {activeSummaryTopic ? (
-                activeSummaryTopic.isUncovered || activeSummaryTopic.attemptedProblems === 0 ? (
-                  <p className="text-stone-700 dark:text-stone-200">
-                    <span className="font-semibold capitalize">{activeSummaryTopic.tag}</span>: You
-                    haven&apos;t attempted any problems in this core topic yet. Click{' '}
-                    <span className="font-medium">Practice</span> to get starter recommendations.
-                  </p>
+            {/* Live Inspector Line */}
+            {(activeSummaryTopic || selectedTopic) && (
+              <div className="mb-2 min-h-[20px] flex items-center justify-between gap-2 text-xs">
+                {activeSummaryTopic ? (
+                  activeSummaryTopic.isUncovered || activeSummaryTopic.attemptedProblems === 0 ? (
+                    <p className="text-slate-700 dark:text-slate-200">
+                      <span className="font-semibold capitalize">{activeSummaryTopic.tag}</span> · 0 attempts
+                    </p>
+                  ) : (
+                    (() => {
+                      const p = getPercentages(activeSummaryTopic);
+                      const dom = formatVerdictShort(activeSummaryTopic.dominantFailureVerdict);
+                      return (
+                        <p className="text-slate-700 dark:text-slate-200 tabular-nums">
+                          <span className="font-semibold capitalize">{activeSummaryTopic.tag}</span> ·{' '}
+                          {p.firstTry} 1st-try · {p.retried} retried · {p.stuck} stuck
+                          {activeSummaryTopic.dominantFailureVerdict !== 'NONE'
+                            ? ` (${dom.label})`
+                            : ''}
+                        </p>
+                      );
+                    })()
+                  )
                 ) : (
-                  (() => {
-                    const p = getPercentages(activeSummaryTopic);
-                    const dom = formatVerdictShort(activeSummaryTopic.dominantFailureVerdict);
-                    return (
-                      <p className="text-stone-700 dark:text-stone-200 tabular-nums">
-                        <span className="font-semibold capitalize">{activeSummaryTopic.tag}</span>:{' '}
-                        {p.firstTry} solved 1st try, {p.retried} solved after retries, and{' '}
-                        {p.stuck} unsolved out of {activeSummaryTopic.attemptedProblems} attempted
-                        {activeSummaryTopic.dominantFailureVerdict !== 'NONE'
-                          ? ` (mostly ${dom.label})`
-                          : ''}
-                        .
-                      </p>
-                    );
-                  })()
-                )
-              ) : (
-                <p className="text-stone-400 dark:text-stone-500">
-                  Hover or click any bar to inspect details and filter the queue below.
-                </p>
-              )}
+                  <span />
+                )}
 
-              {selectedTopic && (
-                <button
-                  type="button"
-                  onClick={() => onSelectTopic(null)}
-                  className="text-rose-600 dark:text-rose-400 hover:underline whitespace-nowrap shrink-0"
-                >
-                  Clear filter ({selectedTopic})
-                </button>
-              )}
-            </div>
+                {selectedTopic && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectTopic(null)}
+                    className="text-[#0047CC] dark:text-blue-400 hover:underline whitespace-nowrap shrink-0"
+                  >
+                    Clear ({selectedTopic})
+                  </button>
+                )}
+              </div>
+            )}
 
             <div ref={svgWrapRef} className="w-full">
               <svg
@@ -616,7 +582,6 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                 className="overflow-visible select-none"
                 onMouseLeave={() => setHoveredTopic(null)}
               >
-                {/* 0%, 25%, 50%, 75%, 100% percentage gridlines */}
                 {[0, 25, 50, 75, 100].map((pctTick) => {
                   const x = chartLeft + (pctTick / 100) * barTrackW;
                   return (
@@ -626,14 +591,14 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                         x2={x}
                         y1={chartTop - 4}
                         y2={svgHeight - 8}
-                        className="stroke-stone-100 dark:stroke-stone-800"
+                        className="stroke-slate-100 dark:stroke-slate-800"
                         strokeWidth={1}
                       />
                       <text
                         x={x}
                         y={14}
                         textAnchor="middle"
-                        className="fill-stone-400 dark:fill-stone-500 text-[10px] font-mono"
+                        className="fill-slate-400 dark:fill-slate-500 text-[10px] font-mono"
                       >
                         {pctTick}%
                       </text>
@@ -670,25 +635,25 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                         rx={6}
                         fill={
                           isSelected
-                            ? 'rgba(225, 29, 72, 0.08)'
+                            ? 'rgba(37, 99, 235, 0.09)'
                             : isHovered
-                            ? 'rgba(168, 162, 158, 0.1)'
+                            ? 'rgba(148, 163, 184, 0.11)'
                             : 'transparent'
                         }
                       />
 
                       {/* Topic Label */}
                       <text
-                        x={8}
+                        x={4}
                         y={y + 22}
-                        className={`text-xs font-medium capitalize ${
+                        className={`text-[11px] sm:text-xs font-medium capitalize ${
                           isSelected
-                            ? 'fill-rose-600 dark:fill-rose-400 font-semibold'
-                            : 'fill-stone-800 dark:fill-stone-200'
+                            ? 'fill-[#0047CC] dark:fill-blue-400 font-semibold'
+                            : 'fill-slate-800 dark:fill-slate-200'
                         }`}
                       >
-                        {t.tag.length > (svgWidth < 560 ? 16 : 22)
-                          ? `${t.tag.slice(0, svgWidth < 560 ? 15 : 21)}…`
+                        {t.tag.length > (svgWidth < 460 ? 13 : svgWidth < 560 ? 16 : 22)
+                          ? `${t.tag.slice(0, svgWidth < 460 ? 12 : svgWidth < 560 ? 15 : 21)}…`
                           : t.tag}
                       </text>
 
@@ -699,7 +664,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                         width={barTrackW}
                         height={barH}
                         rx={4}
-                        className="fill-stone-100 dark:fill-stone-800"
+                        className="fill-slate-100 dark:fill-slate-800"
                       />
 
                       {uncovered ? (
@@ -709,7 +674,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                           width={barTrackW}
                           height={barH}
                           rx={4}
-                          className="fill-rose-200/80 dark:fill-rose-950/70"
+                          className="fill-red-200/80 dark:fill-red-950/70"
                         />
                       ) : (
                         <>
@@ -730,7 +695,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                               width={wRetry}
                               height={barH}
                               rx={2}
-                              fill="#3B82F6"
+                              fill="#2563EB"
                             />
                           )}
                           {wStuck > 0 && (
@@ -740,7 +705,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                               width={wStuck}
                               height={barH}
                               rx={2}
-                              fill="#EF4444"
+                              fill="#DC2626"
                             />
                           )}
                         </>
@@ -748,16 +713,18 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
 
                       {/* Right readout inside SVG */}
                       <text
-                        x={chartLeft + barTrackW + 10}
+                        x={chartLeft + barTrackW + 8}
                         y={y + 22}
                         className={`text-[11px] font-mono ${
                           uncovered
-                            ? 'fill-rose-600 dark:fill-rose-400 font-medium'
-                            : 'fill-stone-600 dark:fill-stone-300'
+                            ? 'fill-red-600 dark:fill-red-400 font-medium'
+                            : 'fill-slate-600 dark:fill-slate-300'
                         }`}
                       >
                         {uncovered
-                          ? 'Uncovered'
+                          ? svgWidth < 460
+                            ? '0%'
+                            : 'Uncovered'
                           : svgWidth < 560
                           ? `${pct.solvePct}%`
                           : `${t.solvedProblems}/${t.attemptedProblems} (${pct.solvePct}%)`}
@@ -772,7 +739,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                             e.stopPropagation();
                             onPracticeTopic(t.tag);
                           }}
-                          className="fill-rose-600 dark:fill-rose-400 text-[11px] font-medium hover:underline"
+                          className="fill-[#0047CC] dark:fill-blue-400 text-[11px] font-medium hover:underline"
                         >
                           Practice →
                         </text>
@@ -784,11 +751,11 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
             </div>
 
             {orderedVisualTopics.length > 15 && (
-              <div className="mt-4 pt-3 border-t border-stone-100 dark:border-stone-800 flex justify-center">
+              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-center">
                 <button
                   type="button"
                   onClick={() => setShowAllRows((prev) => !prev)}
-                  className="px-4 py-1.5 text-xs font-medium text-stone-700 dark:text-stone-200 border border-stone-200 dark:border-stone-700 rounded-xl hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
+                  className="px-4 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 >
                   {showAllRows
                     ? 'Show top 15 topics'
@@ -802,9 +769,9 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
         /* ==================== DETAILED METRICS TABLE VIEW ==================== */
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <Search
-                className="w-3.5 h-3.5 text-stone-400 dark:text-stone-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                 aria-hidden="true"
               />
               <input
@@ -813,7 +780,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                 onChange={(e) => setTableSearch(e.target.value)}
                 placeholder="Search topic tag..."
                 aria-label="Search topic tag"
-                className="w-60 pl-8 pr-3 py-1.5 text-xs bg-stone-50 dark:bg-[#141210] border border-stone-200 dark:border-stone-700 rounded-xl text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                className="w-full sm:w-60 pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -821,7 +788,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectTopic(null)}
-                className="text-xs text-rose-600 dark:text-rose-400 hover:underline self-start sm:self-auto"
+                className="text-xs text-[#0047CC] dark:text-blue-400 hover:underline self-start sm:self-auto"
               >
                 Clear queue filter ({selectedTopic})
               </button>
@@ -831,13 +798,13 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-stone-200 dark:border-stone-800 text-stone-500 dark:text-stone-400">
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
                   <th className="py-2.5 pr-3 font-medium">Topic Tag</th>
                   <th className="py-2.5 px-2 font-medium">
                     <button
                       type="button"
                       onClick={() => toggleSort('struggleScore')}
-                      className="inline-flex items-center gap-1 hover:text-stone-900 dark:hover:text-stone-100"
+                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
                     >
                       Status <ArrowDownUp className="w-3 h-3" />
                     </button>
@@ -846,7 +813,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleSort('attemptedProblems')}
-                      className="inline-flex items-center gap-1 hover:text-stone-900 dark:hover:text-stone-100"
+                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
                     >
                       Solved / Tried <ArrowDownUp className="w-3 h-3" />
                     </button>
@@ -855,7 +822,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleSort('unsolvedProblems')}
-                      className="inline-flex items-center gap-1 hover:text-stone-900 dark:hover:text-stone-100"
+                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
                     >
                       Stuck <ArrowDownUp className="w-3 h-3" />
                     </button>
@@ -864,7 +831,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleSort('firstTryRate')}
-                      className="inline-flex items-center gap-1 hover:text-stone-900 dark:hover:text-stone-100"
+                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
                     >
                       1st-Try % <ArrowDownUp className="w-3 h-3" />
                     </button>
@@ -873,7 +840,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleSort('failureRate')}
-                      className="inline-flex items-center gap-1 hover:text-stone-900 dark:hover:text-stone-100"
+                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
                     >
                       Non-AC % <ArrowDownUp className="w-3 h-3" />
                     </button>
@@ -882,7 +849,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleSort('avgAttemptsToAc')}
-                      className="inline-flex items-center gap-1 hover:text-stone-900 dark:hover:text-stone-100"
+                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
                     >
                       Avg Tries <ArrowDownUp className="w-3 h-3" />
                     </button>
@@ -891,7 +858,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleSort('avgSolvedRating')}
-                      className="inline-flex items-center gap-1 hover:text-stone-900 dark:hover:text-stone-100"
+                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
                     >
                       Avg Rating <ArrowDownUp className="w-3 h-3" />
                     </button>
@@ -899,7 +866,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                   {onPracticeTopic && <th className="py-2.5 pl-2 text-right font-medium">Action</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-100 dark:divide-stone-800/80">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                 {tableTopics.map((t) => {
                   const status = getStatusMeta(t);
                   const uncovered = Boolean(t.isUncovered || t.attemptedProblems === 0);
@@ -910,29 +877,29 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                       onClick={() => onSelectTopic(isSelected ? null : t.tag)}
                       className={`cursor-pointer transition-colors h-10 ${
                         isSelected
-                          ? 'bg-rose-50/70 dark:bg-rose-950/30'
-                          : 'hover:bg-stone-50 dark:hover:bg-stone-800/40'
+                          ? 'bg-blue-50/70 dark:bg-blue-950/30'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
                       }`}
                     >
-                      <td className="py-2 pr-3 font-medium text-stone-900 dark:text-stone-100 capitalize whitespace-nowrap">
+                      <td className="py-2 pr-3 font-medium text-slate-900 dark:text-slate-100 capitalize whitespace-nowrap">
                         {t.tag}
                       </td>
                       <td className={`py-2 px-2 font-medium whitespace-nowrap ${status.colorClass}`}>
                         {status.label}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono tabular-nums text-stone-700 dark:text-stone-300">
+                      <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         {t.solvedProblems}/{t.attemptedProblems}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono tabular-nums text-stone-700 dark:text-stone-300">
+                      <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         {t.unsolvedProblems}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono tabular-nums text-stone-700 dark:text-stone-300">
+                      <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         {uncovered ? '—' : `${t.firstTryRate.toFixed(0)}%`}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono tabular-nums text-stone-700 dark:text-stone-300">
+                      <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         {uncovered ? '—' : `${t.failureRate.toFixed(0)}%`}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono tabular-nums text-stone-700 dark:text-stone-300">
+                      <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         {uncovered ? '—' : t.avgAttemptsToAc.toFixed(1)}
                       </td>
                       <td
@@ -951,7 +918,7 @@ export const TopicStruggleSection: React.FC<TopicStruggleSectionProps> = ({
                               e.stopPropagation();
                               onPracticeTopic(t.tag);
                             }}
-                            className="text-rose-600 dark:text-rose-400 font-medium hover:underline whitespace-nowrap"
+                            className="text-[#0047CC] dark:text-blue-400 font-medium hover:underline whitespace-nowrap"
                           >
                             Practice
                           </button>

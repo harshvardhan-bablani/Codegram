@@ -1078,15 +1078,15 @@ export function generateSuggestedProblems(params: {
       reasons.push(`Weak: ${matchedWeakTags.slice(0, 2).join(', ')}`);
     }
     if (matchedUnderexploredTags.length > 0) {
-      reasons.push(`Underexplored: ${matchedUnderexploredTags.slice(0, 2).join(', ')}`);
+      reasons.push(`New: ${matchedUnderexploredTags.slice(0, 2).join(', ')}`);
     }
     if (previouslyAttempted) {
-      reasons.push('Previously attempted');
+      reasons.push('Tried before');
     }
     if (reasons.length === 0 && filterTopic) {
-      reasons.push(`Topic match: ${filterTopic}`);
+      reasons.push(filterTopic);
     } else if (reasons.length === 0) {
-      reasons.push(`Target rating ${p.rating}`);
+      reasons.push(`${p.rating}`);
     }
 
     scored.push({
@@ -1119,4 +1119,79 @@ export function generateSuggestedProblems(params: {
   };
 }
 
+export const COMMON_TRAINING_TOPICS: string[] = [
+  'dp',
+  'graphs',
+  'trees',
+  'binary search',
+  'greedy',
+  'math',
+  'number theory',
+  'constructive algorithms',
+  'data structures',
+  'two pointers',
+  'bitmasks',
+  'strings',
+  'combinatorics',
+  'dfs and similar',
+];
+
+export interface MemberCommunityMetrics {
+  cfRating: number;
+  cfMaxRating: number;
+  cfRank: string;
+  lastContestDelta: number;
+  weeklySolves: number;
+  currentStreak: number;
+  totalSolved: number;
+}
+
+export function computeMemberCommunityMetrics(bundle: CFBundle): MemberCommunityMetrics {
+  const cfRating = Math.max(0, Math.min(6000, Math.round(bundle.user.rating ?? 0)));
+  const cfMaxRating = Math.max(
+    cfRating,
+    Math.min(6000, Math.round(bundle.user.maxRating ?? bundle.user.rating ?? 0))
+  );
+  const cfRank = (bundle.user.rank ?? 'unrated').slice(0, 40);
+
+  let lastContestDelta = 0;
+  if (bundle.ratingHistory.length > 0) {
+    let latest = bundle.ratingHistory[0];
+    for (const r of bundle.ratingHistory) {
+      if (r.ratingUpdateTimeSeconds > latest.ratingUpdateTimeSeconds) {
+        latest = r;
+      }
+    }
+    lastContestDelta = Math.max(
+      -3000,
+      Math.min(3000, Math.round(latest.newRating - latest.oldRating))
+    );
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const weekCutoff = nowSec - 7 * 86400;
+  const allSolved = new Set<string>();
+  const weeklySolved = new Set<string>();
+
+  for (const s of bundle.submissions) {
+    if (s.verdict !== 'OK') continue;
+    const key = getProblemKey(s.problem);
+    allSolved.add(key);
+    if (s.creationTimeSeconds >= weekCutoff) {
+      weeklySolved.add(key);
+    }
+  }
+
+  const streaks = computeStreaks(bundle.submissions);
+
+  return {
+    cfRating,
+    cfMaxRating,
+    cfRank,
+    lastContestDelta,
+    weeklySolves: Math.min(10000, weeklySolved.size),
+    currentStreak: Math.min(5000, streaks.currentStreak),
+    totalSolved: Math.min(50000, allSolved.size),
+  };
+}
 

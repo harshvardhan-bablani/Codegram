@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Edit3, Moon, RefreshCw, Search, Sun } from 'lucide-react';
-import type { CFUser, TimeframeKey } from '../types/codeforces';
+import { ExternalLink, Moon, RefreshCw, Sun } from 'lucide-react';
+import type { CFUser, CommunityMember } from '../types/codeforces';
 import {
   SAMPLE_PROFILE_AVATAR,
   getRankColor,
@@ -10,88 +10,105 @@ import {
 
 interface ProfileToolbarProps {
   user: CFUser | null;
+  displayName: string;
   activeHandle: string;
-  recentHandles: string[];
-  timeframe: TimeframeKey;
   loading: boolean;
   isDark: boolean;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  onSelectHandle: (handle: string) => void;
+  communityMember: CommunityMember | null;
+  communityRank: number | null;
+  communityMemberCount: number;
+  onOpenCommunity: () => void;
   onRefresh: () => void;
-  onChangeTimeframe: (tf: TimeframeKey) => void;
   onToggleTheme: () => void;
 }
 
-const TIMEFRAMES: { key: TimeframeKey; label: string }[] = [
-  { key: '30d', label: '30D' },
-  { key: '90d', label: '90D' },
-  { key: '6m', label: '6M' },
-  { key: '1y', label: '1Y' },
-  { key: 'all', label: 'All Time' },
-];
+function formatMemberSince(epochMs?: number): string {
+  if (!epochMs) return '—';
+  return new Date(epochMs).toLocaleDateString('en-US', {
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function capitalizeName(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return 'Member';
+  return trimmed
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
 
 export const ProfileToolbar: React.FC<ProfileToolbarProps> = ({
   user,
+  displayName,
   activeHandle,
-  recentHandles,
-  timeframe,
   loading,
   isDark,
-  inputRef,
-  onSelectHandle,
+  communityMember,
+  communityRank,
+  communityMemberCount,
+  onOpenCommunity,
   onRefresh,
-  onChangeTimeframe,
   onToggleTheme,
 }) => {
-  const [draftHandle, setDraftHandle] = useState(activeHandle);
   const [avatarFailed, setAvatarFailed] = useState(false);
-  const [showSwitchForm, setShowSwitchForm] = useState(!activeHandle);
 
   useEffect(() => {
-    setDraftHandle(activeHandle);
     setAvatarFailed(false);
-    if (activeHandle) setShowSwitchForm(false);
   }, [activeHandle]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = draftHandle.trim();
-    if (trimmed) {
-      onSelectHandle(trimmed);
-    }
-  };
-
-  const rankColor = getRankColor(user?.rating, user?.rank);
+  const boundHandle = communityMember?.cfHandle || user?.handle || activeHandle;
+  const rankColor = getRankColor(
+    user?.rating ?? communityMember?.cfRating,
+    user?.rank ?? communityMember?.cfRank
+  );
   const avatarSrc = avatarFailed
     ? SAMPLE_PROFILE_AVATAR
-    : resolveAvatarUrl(user?.titlePhoto || user?.avatar);
+    : resolveAvatarUrl(user?.titlePhoto || user?.avatar || communityMember?.photoUrl);
+
+  const resolvedName = capitalizeName(
+    displayName.trim() || communityMember?.displayName || boundHandle || 'Member'
+  );
+  const joinedLabel = formatMemberSince(communityMember?.joinedAt);
 
   return (
     <section
       id="overview"
-      className="bg-white dark:bg-[#1B1917] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-5 sm:p-6"
+      aria-label="You"
+      className="bg-white dark:bg-[#121824] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-6"
     >
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-        {/* Left: Profile Header */}
-        <div className="flex items-center gap-4 min-w-0">
-          <div className="w-16 h-16 rounded-full overflow-hidden border border-stone-200 dark:border-stone-700 bg-stone-100 dark:bg-stone-800 flex items-center justify-center shrink-0">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 sm:gap-5">
+        {/* Left: Personal Identity, Bound Handle & Compact Join Date */}
+        <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
             <img
               src={avatarSrc}
-              alt={`${user?.handle || activeHandle || 'Profile'} avatar`}
+              alt={`${resolvedName} avatar`}
               referrerPolicy="no-referrer"
               onError={() => setAvatarFailed(true)}
               className="w-full h-full object-cover"
             />
           </div>
 
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-2.5 flex-wrap">
-              <h1
-                className="font-display text-xl sm:text-2xl font-bold tracking-tight truncate"
-                style={{ color: rankColor }}
-              >
-                {user?.handle ? `@${user.handle}` : activeHandle ? `@${activeHandle}` : 'No handle linked'}
-              </h1>
+          <div className="min-w-0 space-y-1">
+            <h1 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate">
+              {resolvedName}
+            </h1>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {boundHandle && (
+                <a
+                  href={`https://codeforces.com/profile/${encodeURIComponent(boundHandle)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-mono text-sm font-bold hover:underline whitespace-nowrap shrink-0"
+                  style={{ color: rankColor }}
+                >
+                  <span>@{boundHandle}</span>
+                  <ExternalLink className="w-3 h-3 opacity-75" />
+                </a>
+              )}
               {user && (
                 <span
                   className="font-mono text-sm font-bold tabular-nums"
@@ -103,12 +120,12 @@ export const ProfileToolbar: React.FC<ProfileToolbarProps> = ({
             </div>
 
             {user ? (
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-stone-500 dark:text-stone-400">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                 <span className="font-semibold" style={{ color: rankColor }}>
                   {getRankLabel(user.rank)}
                 </span>
                 <span aria-hidden="true">·</span>
-                <span className="tabular-nums">
+                <span>
                   Peak {user.maxRating ?? '—'} ({getRankLabel(user.maxRank)})
                 </span>
                 {user.organization && (
@@ -119,128 +136,65 @@ export const ProfileToolbar: React.FC<ProfileToolbarProps> = ({
                 )}
               </div>
             ) : (
-              <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">
-                {loading
-                  ? 'Fetching official Codeforces profile and submission history'
-                  : 'Enter your Codeforces handle to load your profile & insights'}
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {loading ? 'Loading Codeforces profile...' : 'Bound Codeforces account'}
+              </p>
+            )}
+
+            {communityMember && (
+              <p className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+                Member since {joinedLabel}
               </p>
             )}
           </div>
         </div>
 
-        {/* Right: Timeframe Filter & Clean Icon Actions */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Timeframe Segmented Control */}
-          <div
-            role="group"
-            aria-label="Timeframe filter"
-            className="inline-flex items-center p-1 bg-stone-100 dark:bg-[#141312] border border-stone-200/80 dark:border-stone-800 rounded-xl"
+        {/* Right: Highlighted Community Rank + Prominent Sync CTA + Theme */}
+        <div className="flex items-center justify-between lg:justify-end gap-4 sm:gap-5 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800/80 shrink-0">
+          <button
+            type="button"
+            onClick={onOpenCommunity}
+            className="text-left lg:text-right sm:pr-5 sm:border-r sm:border-slate-200 dark:sm:border-slate-800 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg"
           >
-            {TIMEFRAMES.map((tf) => {
-              const active = timeframe === tf.key;
-              return (
-                <button
-                  key={tf.key}
-                  type="button"
-                  onClick={() => onChangeTimeframe(tf.key)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                    active
-                      ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                  }`}
-                >
-                  {tf.label}
-                </button>
-              );
-            })}
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 group-hover:text-[#0047CC] dark:group-hover:text-blue-400 transition-colors">
+              Community Rank
+            </p>
+            <div className="mt-0.5 flex items-baseline lg:justify-end gap-1.5 tabular-nums">
+              <span className="font-mono text-2xl sm:text-3xl font-bold tracking-tight text-[#0047CC] dark:text-blue-400 leading-none">
+                {communityRank ? `#${communityRank}` : '—'}
+              </span>
+              {communityMemberCount > 0 && (
+                <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                  of {communityMemberCount}
+                </span>
+              )}
+            </div>
+          </button>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading || !boundHandle}
+              aria-label="Sync Codeforces data"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl bg-[#0047CC] hover:bg-[#0039A6] dark:bg-blue-600 dark:hover:bg-blue-500 text-white disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>{loading ? 'Syncing...' : 'Sync'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onToggleTheme}
+              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+            </button>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowSwitchForm((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors whitespace-nowrap shrink-0"
-          >
-            <Edit3 className="w-3.5 h-3.5 text-rose-500" />
-            <span>Switch</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading || !activeHandle}
-            title="Refresh data from Codeforces API"
-            aria-label="Refresh data from Codeforces API"
-            className="p-2 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-
-          <button
-            type="button"
-            onClick={onToggleTheme}
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="p-2 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-          >
-            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
-          </button>
         </div>
       </div>
-
-      {/* Expandable Handle Switcher & Recent Handles */}
-      {(showSwitchForm || recentHandles.length > 0) && (
-        <div className="mt-4 pt-4 border-t border-stone-100 dark:border-stone-800/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          {showSwitchForm && (
-            <form onSubmit={handleSubmit} className="flex items-center gap-2">
-              <div className="relative">
-                <Search
-                  className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                  aria-hidden="true"
-                />
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={draftHandle}
-                  onChange={(e) => setDraftHandle(e.target.value)}
-                  placeholder="Codeforces handle..."
-                  aria-label="Codeforces handle"
-                  className="w-52 pl-9 pr-3 py-2 text-xs bg-stone-50 dark:bg-[#141312] border border-stone-200 dark:border-stone-700 rounded-xl text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loading || !draftHandle.trim()}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
-              >
-                {loading ? 'Loading...' : 'Load Profile'}
-              </button>
-            </form>
-          )}
-
-          {recentHandles.length > 0 && (
-            <div className="flex items-center gap-3 flex-wrap text-xs">
-              <span className="text-stone-500 dark:text-stone-400 font-medium">Recent:</span>
-              {recentHandles.map((h) => {
-                const isCurrent = h.toLowerCase() === activeHandle.toLowerCase();
-                return (
-                  <button
-                    key={h}
-                    type="button"
-                    onClick={() => onSelectHandle(h)}
-                    className={`font-mono transition-colors whitespace-nowrap shrink-0 ${
-                      isCurrent
-                        ? 'text-rose-600 dark:text-rose-400 font-bold underline underline-offset-4'
-                        : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                    }`}
-                  >
-                    @{h}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
     </section>
   );
 };

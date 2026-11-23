@@ -30,12 +30,38 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isFounder() {
+      return isVerifiedUser()
+        && request.auth.token.email == 'harshvardhanbablani@gmail.com';
+    }
+
+    function isHost() {
+      return isVerifiedUser() && (
+        isFounder()
+        || (
+          exists(/databases/$(database)/documents/communityRoles/$(request.auth.uid))
+          && get(/databases/$(database)/documents/communityRoles/$(request.auth.uid)).data.role == 'host'
+        )
+      );
+    }
+
+    function isCommunityMember() {
+      return isVerifiedUser() && (
+        isFounder()
+        || exists(/databases/$(database)/documents/communityMembers/$(request.auth.uid))
+      );
+    }
+
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function isValidContestId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 32 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 1 && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidInviteCodeId(id) {
+      return id is string && id.size() >= 4 && id.size() <= 32 && id.matches('^[A-Z0-9_\\-]+$');
     }
 
     function isOptionalString(data, key, maxLen) {
@@ -44,6 +70,14 @@ service cloud.firestore {
 
     function isOptionalNumber(data, key, minVal, maxVal) {
       return !(key in data) || ((data[key] is int || data[key] is float) && data[key] >= minVal && data[key] <= maxVal);
+    }
+
+    function isValidTrainingFocus(tags) {
+      return tags is list
+        && tags.size() <= 3
+        && (tags.size() == 0 || (tags[0] is string && tags[0].size() >= 1 && tags[0].size() <= 40))
+        && (tags.size() < 2 || (tags[1] is string && tags[1].size() >= 1 && tags[1].size() <= 40))
+        && (tags.size() < 3 || (tags[2] is string && tags[2].size() >= 1 && tags[2].size() <= 40));
     }
 
     // ---------------------------------------------------------
@@ -108,6 +142,114 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    function isValidCommunityInvite(data, codeId) {
+      return data.keys().hasAll(['code', 'label', 'active', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['code', 'label', 'active', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidInviteCodeId(data.code)
+        && data.code == codeId
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 80
+        && data.active is bool
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidCommunityRole(data, userId) {
+      return data.keys().hasAll(['uid', 'role', 'cfHandle', 'displayName', 'assignedBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'role', 'cfHandle', 'displayName', 'assignedBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.role == 'host'
+        && data.cfHandle is string && data.cfHandle.size() >= 1 && data.cfHandle.size() <= 64
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && isValidId(data.assignedBy)
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidCommunityMember(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'cfHandle', 'cfRating', 'cfMaxRating', 'cfRank',
+          'lastContestDelta', 'weeklySolves', 'currentStreak', 'totalSolved',
+          'trainingFocus', 'inviteCode', 'isCommunityVisible', 'joinedAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'photoUrl', 'cfHandle', 'cfRating', 'cfMaxRating', 'cfRank',
+          'lastContestDelta', 'weeklySolves', 'currentStreak', 'totalSolved',
+          'trainingFocus', 'goalLabel', 'inviteCode', 'isCommunityVisible', 'joinedAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && isOptionalString(data, 'photoUrl', 500)
+        && data.cfHandle is string && data.cfHandle.size() >= 1 && data.cfHandle.size() <= 64
+        && (data.cfRating is int || data.cfRating is float) && data.cfRating >= 0 && data.cfRating <= 6000
+        && (data.cfMaxRating is int || data.cfMaxRating is float) && data.cfMaxRating >= 0 && data.cfMaxRating <= 6000
+        && data.cfRank is string && data.cfRank.size() <= 40
+        && (data.lastContestDelta is int || data.lastContestDelta is float) && data.lastContestDelta >= -3000 && data.lastContestDelta <= 3000
+        && (data.weeklySolves is int || data.weeklySolves is float) && data.weeklySolves >= 0 && data.weeklySolves <= 10000
+        && (data.currentStreak is int || data.currentStreak is float) && data.currentStreak >= 0 && data.currentStreak <= 5000
+        && (data.totalSolved is int || data.totalSolved is float) && data.totalSolved >= 0 && data.totalSolved <= 50000
+        && isValidTrainingFocus(data.trainingFocus)
+        && isOptionalString(data, 'goalLabel', 40)
+        && isValidInviteCodeId(data.inviteCode)
+        && data.isCommunityVisible is bool
+        && data.joinedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidCommunityContest(data, contestId) {
+      return data.keys().hasAll([
+          'contestId', 'title', 'platform', 'contestUrl', 'startsAtEpoch',
+          'durationMinutes', 'divisionTag', 'hostUid', 'hostHandle', 'status',
+          'isCommunityVisible', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'contestId', 'title', 'summary', 'platform', 'contestUrl', 'startsAtEpoch',
+          'durationMinutes', 'divisionTag', 'hostUid', 'hostHandle', 'status',
+          'isCommunityVisible', 'createdAt', 'updatedAt'
+        ])
+        && isValidContestId(data.contestId)
+        && data.contestId == contestId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && isOptionalString(data, 'summary', 200)
+        && data.platform == 'Codeforces'
+        && data.contestUrl is string && data.contestUrl.size() >= 10 && data.contestUrl.size() <= 300
+        && (data.startsAtEpoch is int || data.startsAtEpoch is float) && data.startsAtEpoch >= 1000000000 && data.startsAtEpoch <= 4000000000
+        && (data.durationMinutes is int || data.durationMinutes is float) && data.durationMinutes >= 10 && data.durationMinutes <= 1440
+        && data.divisionTag is string && data.divisionTag.size() >= 1 && data.divisionTag.size() <= 32
+        && isValidId(data.hostUid)
+        && data.hostHandle is string && data.hostHandle.size() >= 1 && data.hostHandle.size() <= 64
+        && data.status in ['upcoming', 'live', 'completed']
+        && data.isCommunityVisible is bool
+        && data.createdAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidCommunityContestRsvp(data, contestId, userId) {
+      return data.keys().hasAll([
+          'userId', 'contestId', 'cfHandle', 'displayName', 'cfRating',
+          'status', 'isCommunityVisible', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'contestId', 'cfHandle', 'displayName', 'photoUrl', 'cfRating',
+          'status', 'isCommunityVisible', 'updatedAt'
+        ])
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && isValidContestId(data.contestId)
+        && data.contestId == contestId
+        && data.cfHandle is string && data.cfHandle.size() >= 1 && data.cfHandle.size() <= 64
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && isOptionalString(data, 'photoUrl', 500)
+        && (data.cfRating is int || data.cfRating is float) && data.cfRating >= 0 && data.cfRating <= 6000
+        && data.status in ['competing', 'watching']
+        && data.isCommunityVisible is bool
+        && data.updatedAt == request.time;
+    }
+
     // ---------------------------------------------------------
     // 1. Personal Profile (/profiles/{userId}) - Owner-only
     // ---------------------------------------------------------
@@ -118,6 +260,7 @@ service cloud.firestore {
       allow update: if isVerifiedUser() && isValidId(userId) && isOwner(userId)
         && isValidProfile(incoming(), userId)
         && incoming().uid == existing().uid
+        && (isFounder() || incoming().cfHandle.lower() == existing().cfHandle.lower())
         && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'cfHandle', 'cfRating', 'cfRank', 'bio', 'isPublic', 'updatedAt']);
       allow delete: if isVerifiedUser() && isValidId(userId) && isOwner(userId);
     }
@@ -159,11 +302,9 @@ service cloud.firestore {
     match /contests/{contestId}/rsvps/{userId} {
       allow get: if isValidContestId(contestId) && isValidId(userId) && isOwner(userId);
       allow list: if isSignedIn() && existing().userId == request.auth.uid;
-
       allow create: if isVerifiedUser() && isValidContestId(contestId) && isValidId(userId)
         && isOwner(userId)
         && isValidContestRsvp(incoming(), contestId, userId);
-
       allow update: if isVerifiedUser() && isValidContestId(contestId) && isValidId(userId)
         && isOwner(userId)
         && isValidContestRsvp(incoming(), contestId, userId)
@@ -172,8 +313,140 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'cfHandle', 'displayName', 'cfRating', 'status', 'isPublic', 'updatedAt'
         ]);
-
       allow delete: if isVerifiedUser() && isValidContestId(contestId) && isValidId(userId) && isOwner(userId);
+    }
+
+    // ---------------------------------------------------------
+    // 5. Community Invite Codes (/communityInvites/{codeId})
+    // ---------------------------------------------------------
+    match /communityInvites/{codeId} {
+      allow get: if isVerifiedUser() && isValidInviteCodeId(codeId);
+      allow list: if isFounder() && existing().code is string;
+      allow create: if isFounder()
+        && isValidInviteCodeId(codeId)
+        && isValidCommunityInvite(incoming(), codeId)
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isFounder()
+        && isValidInviteCodeId(codeId)
+        && isValidCommunityInvite(incoming(), codeId)
+        && incoming().code == existing().code
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['label', 'active', 'updatedAt']);
+      allow delete: if isFounder() && isValidInviteCodeId(codeId);
+    }
+
+    // ---------------------------------------------------------
+    // 6. Community Organizer Host Roles (/communityRoles/{userId})
+    // ---------------------------------------------------------
+    match /communityRoles/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isFounder());
+      allow list: if isFounder() && existing().role == 'host';
+      allow create: if isFounder()
+        && isValidId(userId)
+        && exists(/databases/$(database)/documents/communityMembers/$(userId))
+        && isValidCommunityRole(incoming(), userId)
+        && incoming().assignedBy == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isFounder()
+        && isValidId(userId)
+        && isValidCommunityRole(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().assignedBy == existing().assignedBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'cfHandle', 'displayName', 'updatedAt']);
+      allow delete: if isFounder() && isValidId(userId);
+    }
+
+    // ---------------------------------------------------------
+    // 7. CodeGram Community Members (/communityMembers/{userId})
+    // ---------------------------------------------------------
+    match /communityMembers/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isCommunityMember());
+      allow list: if isCommunityMember() && existing().isCommunityVisible == true;
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidCommunityMember(incoming(), userId)
+        && incoming().joinedAt == request.time
+        && (
+          isFounder()
+          || incoming().inviteCode == 'CODEGRAM_WEB'
+          || (
+            exists(/databases/$(database)/documents/communityInvites/$(incoming().inviteCode))
+            && get(/databases/$(database)/documents/communityInvites/$(incoming().inviteCode)).data.active == true
+          )
+        );
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidCommunityMember(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().inviteCode == existing().inviteCode
+        && incoming().joinedAt == existing().joinedAt
+        && (isFounder() || incoming().cfHandle.lower() == existing().cfHandle.lower())
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'photoUrl', 'cfHandle', 'cfRating', 'cfMaxRating', 'cfRank',
+          'lastContestDelta', 'weeklySolves', 'currentStreak', 'totalSolved',
+          'trainingFocus', 'goalLabel', 'isCommunityVisible', 'updatedAt'
+        ]);
+      allow delete: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isFounder());
+    }
+
+    // ---------------------------------------------------------
+    // 8. CodeGram Hosted Contests (/communityContests/{contestId})
+    // ---------------------------------------------------------
+    match /communityContests/{contestId} {
+      allow get: if isValidContestId(contestId) && isCommunityMember();
+      allow list: if isCommunityMember() && existing().isCommunityVisible == true;
+      allow create: if isHost()
+        && isValidContestId(contestId)
+        && isValidCommunityContest(incoming(), contestId)
+        && incoming().hostUid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isHost()
+        && isValidContestId(contestId)
+        && isValidCommunityContest(incoming(), contestId)
+        && incoming().contestId == existing().contestId
+        && incoming().hostUid == existing().hostUid
+        && incoming().createdAt == existing().createdAt
+        && (existing().status != 'completed' || isFounder())
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'summary', 'platform', 'contestUrl', 'startsAtEpoch',
+          'durationMinutes', 'divisionTag', 'hostHandle', 'status',
+          'isCommunityVisible', 'updatedAt'
+        ]);
+      allow delete: if isHost() && isValidContestId(contestId);
+
+      // -------------------------------------------------------
+      // 9. Community Contest RSVPs (/communityContests/{contestId}/rsvps/{userId})
+      // -------------------------------------------------------
+      match /rsvps/{userId} {
+        allow get: if isValidContestId(contestId) && isValidId(userId) && isCommunityMember();
+        allow list: if isCommunityMember() && existing().isCommunityVisible == true;
+        allow create: if isCommunityMember()
+          && isValidContestId(contestId)
+          && isValidId(userId)
+          && isOwner(userId)
+          && exists(/databases/$(database)/documents/communityContests/$(contestId))
+          && isValidCommunityContestRsvp(incoming(), contestId, userId);
+        allow update: if isCommunityMember()
+          && isValidContestId(contestId)
+          && isValidId(userId)
+          && isOwner(userId)
+          && exists(/databases/$(database)/documents/communityContests/$(contestId))
+          && isValidCommunityContestRsvp(incoming(), contestId, userId)
+          && incoming().userId == existing().userId
+          && incoming().contestId == existing().contestId
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'cfHandle', 'displayName', 'photoUrl', 'cfRating', 'status', 'isCommunityVisible', 'updatedAt'
+          ]);
+        allow delete: if isCommunityMember()
+          && isValidContestId(contestId)
+          && isValidId(userId)
+          && isOwner(userId);
+      }
     }
   }
 }

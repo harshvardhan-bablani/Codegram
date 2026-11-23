@@ -48,7 +48,7 @@
     },
     "ContestRsvp": {
       "title": "ContestRsvp",
-      "description": "Personal contest reminder plan for an upcoming Codeforces round.",
+      "description": "Personal contest reminder plan for an upcoming official Codeforces round.",
       "type": "object",
       "properties": {
         "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -61,6 +61,138 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "contestId", "cfHandle", "displayName", "status", "isPublic", "updatedAt"]
+    },
+    "CommunityInvite": {
+      "title": "CommunityInvite",
+      "description": "Founder-managed invite codes required to join the CodeGram community.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 4, "maxLength": 32, "pattern": "^[A-Z0-9_\\-]+$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "label", "active", "createdBy", "createdAt", "updatedAt"]
+    },
+    "CommunityRole": {
+      "title": "CommunityRole",
+      "description": "Designated organizer/host role assignments controlled strictly by the founder.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "role": { "type": "string", "enum": ["host"] },
+        "cfHandle": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "assignedBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "role", "cfHandle", "displayName", "assignedBy", "createdAt", "updatedAt"]
+    },
+    "CommunityMember": {
+      "title": "CommunityMember",
+      "description": "PII-free CodeGram community member card synced with rating, delta, weekly solves, and training focus.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "cfHandle": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "cfRating": { "type": "number" },
+        "cfMaxRating": { "type": "number" },
+        "cfRank": { "type": "string", "maxLength": 40 },
+        "lastContestDelta": { "type": "number" },
+        "weeklySolves": { "type": "number" },
+        "currentStreak": { "type": "number" },
+        "totalSolved": { "type": "number" },
+        "trainingFocus": { "type": "array", "maxLength": 3 },
+        "goalLabel": { "type": "string", "maxLength": 40 },
+        "inviteCode": { "type": "string", "minLength": 4, "maxLength": 32, "pattern": "^[A-Z0-9_\\-]+$", "description": "Platform default CODEGRAM_WEB or founder-issued invite code." },
+        "isCommunityVisible": { "type": "boolean" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "cfHandle",
+        "cfRating",
+        "cfMaxRating",
+        "cfRank",
+        "lastContestDelta",
+        "weeklySolves",
+        "currentStreak",
+        "totalSolved",
+        "trainingFocus",
+        "inviteCode",
+        "isCommunityVisible",
+        "joinedAt",
+        "updatedAt"
+      ]
+    },
+    "CommunityContest": {
+      "title": "CommunityContest",
+      "description": "CodeGram-hosted competitive programming contest managed by the founder and designated hosts.",
+      "type": "object",
+      "properties": {
+        "contestId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "summary": { "type": "string", "maxLength": 200 },
+        "platform": { "type": "string", "enum": ["Codeforces"] },
+        "contestUrl": { "type": "string", "minLength": 10, "maxLength": 300 },
+        "startsAtEpoch": { "type": "number" },
+        "durationMinutes": { "type": "number" },
+        "divisionTag": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "hostUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "hostHandle": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "status": { "type": "string", "enum": ["upcoming", "live", "completed"] },
+        "isCommunityVisible": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "contestId",
+        "title",
+        "platform",
+        "contestUrl",
+        "startsAtEpoch",
+        "durationMinutes",
+        "divisionTag",
+        "hostUid",
+        "hostHandle",
+        "status",
+        "isCommunityVisible",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CommunityContestRsvp": {
+      "title": "CommunityContestRsvp",
+      "description": "Member RSVP for a CodeGram-hosted community contest.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "contestId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "cfHandle": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "cfRating": { "type": "number" },
+        "status": { "type": "string", "enum": ["competing", "watching"] },
+        "isCommunityVisible": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "contestId",
+        "cfHandle",
+        "displayName",
+        "cfRating",
+        "status",
+        "isCommunityVisible",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -78,7 +210,27 @@
     },
     "/contests/{contestId}/rsvps/{userId}": {
       "schema": { "$ref": "#/entities/ContestRsvp" },
-      "description": "Personal reminder commitment for upcoming Codeforces contests."
+      "description": "Personal reminder commitment for upcoming official Codeforces contests."
+    },
+    "/communityInvites/{codeId}": {
+      "schema": { "$ref": "#/entities/CommunityInvite" },
+      "description": "Invite codes created by the founder to enroll members into the CodeGram community."
+    },
+    "/communityRoles/{userId}": {
+      "schema": { "$ref": "#/entities/CommunityRole" },
+      "description": "Designated contest host assignments managed exclusively by the founder."
+    },
+    "/communityMembers/{userId}": {
+      "schema": { "$ref": "#/entities/CommunityMember" },
+      "description": "Enrolled CodeGram community members, leaderboard metrics, and training focus."
+    },
+    "/communityContests/{contestId}": {
+      "schema": { "$ref": "#/entities/CommunityContest" },
+      "description": "Upcoming, live, and completed CodeGram community contests."
+    },
+    "/communityContests/{contestId}/rsvps/{userId}": {
+      "schema": { "$ref": "#/entities/CommunityContestRsvp" },
+      "description": "Member RSVPs for CodeGram-hosted community contests."
     }
   }
 }

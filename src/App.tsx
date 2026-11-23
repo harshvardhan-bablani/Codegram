@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { AlertCircle, ListChecks, Sparkles, Target } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { auth, signInWithGoogle, signOutUser } from './firebase';
 import type {
   BookmarkStatus,
   CFBundle,
   CFContest,
   CodeGramTab,
+  CommunityContest,
+  CommunityContestRsvp,
+  CommunityInvite,
+  CommunityMember,
+  CommunityRole,
   ContestRsvp,
-  FocusModeKey,
   ProblemBookmark,
   RsvpStatus,
   TimeframeKey,
@@ -29,22 +33,43 @@ import {
   upsertPublicProfile,
   upsertUserBookmark,
 } from './services/socialService';
-import { computeCodeforcesAnalytics } from './utils/analytics';
+import {
+  FOUNDER_EMAIL,
+  ensureBackendTestingContestSeeded,
+  getDefaultTestingContest,
+  getOwnCommunityMember,
+  getOwnCommunityRole,
+  joinCommunityDefault,
+  joinCommunityWithInvite,
+  removeCommunityContestRsvp,
+  setCommunityContestRsvp,
+  subscribeCommunityContestRsvps,
+  subscribeCommunityContests,
+  subscribeCommunityInvites,
+  subscribeCommunityMembers,
+  subscribeCommunityRoles,
+  syncOwnCommunityMemberStats,
+  updateOwnTrainingFocus,
+} from './services/communityService';
+import {
+  computeCodeforcesAnalytics,
+  computeMemberCommunityMetrics,
+} from './utils/analytics';
 import { TopBar } from './components/TopBar';
 import { OnboardingHandleGate } from './components/OnboardingHandleGate';
 import { HomeView } from './components/HomeView';
-import { SuggestedProblemsView } from './components/SuggestedProblemsView';
-import { TopicStruggleSection } from './components/TopicStruggleSection';
-import { LeftoversView } from './components/LeftoversView';
-import { RoundsView } from './components/RoundsView';
+import { CommunityView } from './components/CommunityView';
+import { SuggestedProblemsView, type PracticeSubTab } from './components/SuggestedProblemsView';
 import { ProfileToolbar } from './components/ProfileToolbar';
 import { KpiStrip } from './components/KpiStrip';
 import { ActivityHeatmap } from './components/ActivityHeatmap';
 import { SubmissionHistoryChart } from './components/SubmissionHistoryChart';
 import { DifficultyProgressionChart } from './components/DifficultyProgressionChart';
+import { MemberProfileDrawer } from './components/MemberProfileDrawer';
+import { OrganizerPanelModal } from './components/OrganizerPanelModal';
+import { OfflineIndicator } from './components/PWAInstallButton';
 
 const STORAGE_HANDLE_KEY = 'cf_ledger_handle';
-const STORAGE_RECENT_KEY = 'cf_ledger_recent_handles';
 const STORAGE_THEME_KEY = 'codegram_theme';
 const STORAGE_BOOKMARKS_KEY = 'codegram_bookmarks';
 const STORAGE_CLEAN_MIGRATION_KEY = 'cf_ledger_sample_removed_v1';
@@ -53,26 +78,15 @@ const SAMPLE_HANDLES_SET = new Set(['errichto', 'neal', 'tourist', 'jiangly']);
 
 function runOneTimeCleanup() {
   try {
-    // Remove legacy social keys if they exist from older builds
     localStorage.removeItem('cf_ledger_friends');
     localStorage.removeItem('cf_ledger_groups');
+    localStorage.removeItem('cf_ledger_recent_handles');
 
     if (localStorage.getItem(STORAGE_CLEAN_MIGRATION_KEY)) return;
 
     const savedHandle = localStorage.getItem(STORAGE_HANDLE_KEY);
     if (savedHandle && SAMPLE_HANDLES_SET.has(savedHandle.toLowerCase())) {
       localStorage.removeItem(STORAGE_HANDLE_KEY);
-    }
-
-    const savedRecent = localStorage.getItem(STORAGE_RECENT_KEY);
-    if (savedRecent) {
-      const parsed = JSON.parse(savedRecent);
-      if (Array.isArray(parsed)) {
-        const cleaned = parsed.filter(
-          (h) => typeof h === 'string' && !SAMPLE_HANDLES_SET.has(h.toLowerCase())
-        );
-        localStorage.setItem(STORAGE_RECENT_KEY, JSON.stringify(cleaned));
-      }
     }
 
     localStorage.setItem(STORAGE_CLEAN_MIGRATION_KEY, '1');
@@ -91,21 +105,6 @@ function getInitialHandle(): string {
     // Ignore storage errors
   }
   return '';
-}
-
-function getInitialRecentHandles(): string[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_RECENT_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.filter((h): h is string => typeof h === 'string' && h.trim().length > 0);
-      }
-    }
-  } catch {
-    // Ignore storage errors
-  }
-  return [];
 }
 
 function getInitialTheme(): boolean {
@@ -154,7 +153,7 @@ const EMPTY_BUNDLE: CFBundle = {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<CodeGramTab>('home');
-  const [questionsFocusMode, setQuestionsFocusMode] = useState<FocusModeKey>('all');
+  const [practiceSubTab, setPracticeSubTab] = useState<PracticeSubTab>('problems');
 
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -162,7 +161,6 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   const [activeHandle, setActiveHandle] = useState<string>(getInitialHandle);
-  const [recentHandles, setRecentHandles] = useState<string[]>(getInitialRecentHandles);
   const [timeframe, setTimeframe] = useState<TimeframeKey>('1y');
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
 
@@ -170,24 +168,43 @@ export default function App() {
   const [loadingPrimary, setLoadingPrimary] = useState<boolean>(() => Boolean(getInitialHandle()));
   const [primaryError, setPrimaryError] = useState<string | null>(null);
   const [checkingCloudHandle, setCheckingCloudHandle] = useState<boolean>(false);
-  const [needsGoogleSignupPrompt, setNeedsGoogleSignupPrompt] = useState<boolean>(false);
+  const [submittingOnboarding, setSubmittingOnboarding] = useState<boolean>(false);
+  const [showWhatsAppGreeting, setShowWhatsAppGreeting] = useState<boolean>(false);
+  const [customDisplayName, setCustomDisplayName] = useState<string>('');
   const [isDark, setIsDark] = useState<boolean>(getInitialTheme);
 
-  // Personal saved/snoozed problem bookmarks
   const [guestBookmarks, setGuestBookmarks] = useState<ProblemBookmark[]>(getInitialBookmarks);
   const [cloudBookmarks, setCloudBookmarks] = useState<ProblemBookmark[] | null>(null);
 
-  // Contests calendar state
   const [contests, setContests] = useState<CFContest[]>([]);
   const [contestsLoading, setContestsLoading] = useState(true);
-  const [contestsError, setContestsError] = useState<string | null>(null);
   const [rsvpsByContest, setRsvpsByContest] = useState<Record<string, ContestRsvp[]>>({});
 
-  const handleInputRef = useRef<HTMLInputElement | null>(null);
+  // CodeGram Community Hub State
+  const [ownCommunityMember, setOwnCommunityMember] = useState<CommunityMember | null>(null);
+  const [ownCommunityRole, setOwnCommunityRole] = useState<CommunityRole | null>(null);
+  const [communityMembers, setCommunityMembers] = useState<CommunityMember[]>([]);
+  const [communityMembersLoading, setCommunityMembersLoading] = useState(false);
+  const [communityContests, setCommunityContests] = useState<CommunityContest[]>([]);
+  const [communityRsvpsByContest, setCommunityRsvpsByContest] = useState<
+    Record<string, CommunityContestRsvp[]>
+  >({});
+  const [communityInvites, setCommunityInvites] = useState<CommunityInvite[]>([]);
+  const [communityRoles, setCommunityRoles] = useState<CommunityRole[]>([]);
+  const [selectedMemberDrawer, setSelectedMemberDrawer] = useState<CommunityMember | null>(null);
+  const [organizerModalOpen, setOrganizerModalOpen] = useState(false);
+  const [organizerInitialSection, setOrganizerInitialSection] = useState<
+    'contests' | 'invites' | 'hosts'
+  >('contests');
+
+  const seededRound1Ref = useRef(false);
 
   const bookmarks = authUser && cloudBookmarks !== null ? cloudBookmarks : guestBookmarks;
+  const isFounder = Boolean(
+    authUser?.emailVerified && authUser.email?.toLowerCase() === FOUNDER_EMAIL
+  );
+  const isCommunityEnrolled = Boolean(ownCommunityMember);
 
-  // Persist theme
   useEffect(() => {
     const root = document.documentElement;
     if (isDark) root.classList.add('dark');
@@ -199,7 +216,6 @@ export default function App() {
     }
   }, [isDark]);
 
-  // Persist guest bookmarks locally
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_BOOKMARKS_KEY, JSON.stringify(guestBookmarks));
@@ -208,65 +224,70 @@ export default function App() {
     }
   }, [guestBookmarks]);
 
-  // Firebase Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setAuthUser(user);
       setAuthReady(true);
       if (user) {
-        setNeedsGoogleSignupPrompt(false);
+        setCheckingCloudHandle(true);
       } else {
+        setCheckingCloudHandle(false);
+        setShowWhatsAppGreeting(false);
+        setCustomDisplayName('');
+        setActiveHandle('');
+        setPrimaryError(null);
+        try {
+          localStorage.removeItem(STORAGE_HANDLE_KEY);
+        } catch {
+          // Ignore storage errors
+        }
         setCloudBookmarks(null);
         setRsvpsByContest({});
+        setOwnCommunityMember(null);
+        setOwnCommunityRole(null);
+        setCommunityMembers([]);
+        setCommunityContests([]);
+        setCommunityRsvpsByContest({});
+        setCommunityInvites([]);
+        setCommunityRoles([]);
       }
     });
     return () => unsub();
   }, []);
 
-  const loadPrimaryHandle = useCallback(async (handleToLoad: string, forceRefresh = false) => {
-    const clean = handleToLoad.trim();
-    if (!clean) return false;
+  const loadPrimaryHandle = useCallback(
+    async (handleToLoad: string, forceRefresh = false): Promise<CFBundle | null> => {
+      const clean = handleToLoad.trim();
+      if (!clean) return null;
 
-    setLoadingPrimary(true);
-    setPrimaryError(null);
-    setSelectedTopic(null);
-
-    try {
-      const result = await fetchCodeforcesUserBundle(clean, { forceRefresh });
-      const canon = result.user.handle;
-      setBundlesByHandle((prev) => ({ ...prev, [canon.toLowerCase()]: result }));
-      setActiveHandle(canon);
+      setLoadingPrimary(true);
+      setPrimaryError(null);
+      setSelectedTopic(null);
 
       try {
-        localStorage.setItem(STORAGE_HANDLE_KEY, canon);
-      } catch {
-        // Ignore storage errors
-      }
+        const result = await fetchCodeforcesUserBundle(clean, { forceRefresh });
+        const canon = result.user.handle;
+        setBundlesByHandle((prev) => ({ ...prev, [canon.toLowerCase()]: result }));
+        setActiveHandle(canon);
 
-      setRecentHandles((prev) => {
-        const next = [
-          canon,
-          ...prev.filter((h) => h.toLowerCase() !== canon.toLowerCase()),
-        ].slice(0, 6);
         try {
-          localStorage.setItem(STORAGE_RECENT_KEY, JSON.stringify(next));
+          localStorage.setItem(STORAGE_HANDLE_KEY, canon);
         } catch {
           // Ignore storage errors
         }
-        return next;
-      });
-      return true;
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to fetch data from Codeforces API.';
-      setPrimaryError(message);
-      return false;
-    } finally {
-      setLoadingPrimary(false);
-    }
-  }, []);
+        return result;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to fetch data from Codeforces API.';
+        setPrimaryError(message);
+        return null;
+      } finally {
+        setLoadingPrimary(false);
+      }
+    },
+    []
+  );
 
-  // Load initial primary handle if saved
   useEffect(() => {
     if (activeHandle) {
       void loadPrimaryHandle(activeHandle);
@@ -276,17 +297,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load Codeforces contests calendar on mount
   const loadContests = useCallback(async (forceRefresh = false) => {
     setContestsLoading(true);
-    setContestsError(null);
     try {
       const list = await fetchCodeforcesContests(forceRefresh);
       setContests(list);
-    } catch (err) {
-      setContestsError(
-        err instanceof Error ? err.message : 'Could not fetch Codeforces contests.'
-      );
+    } catch {
+      // Best-effort schedule fetch for Home reminder bar
     } finally {
       setContestsLoading(false);
     }
@@ -296,7 +313,6 @@ export default function App() {
     void loadContests(false);
   }, [loadContests]);
 
-  // Attach owner-only Firestore subscriptions when authenticated
   useEffect(() => {
     if (!authReady || !authUser) return;
 
@@ -305,16 +321,24 @@ export default function App() {
     setCheckingCloudHandle(true);
     void (async () => {
       try {
-        const [profile, settings] = await Promise.all([
+        const [profile, settings, memberDoc, roleDoc] = await Promise.all([
           getOwnPublicProfile(authUser.uid),
           getPrivateSettings(authUser.uid),
+          getOwnCommunityMember(authUser.uid),
+          getOwnCommunityRole(authUser.uid),
         ]);
-        const cloudHandle = profile?.cfHandle || settings?.activeHandle;
-        if (cloudHandle && !activeHandle) {
+        setOwnCommunityMember(memberDoc);
+        setOwnCommunityRole(roleDoc);
+        const cloudName =
+          memberDoc?.displayName || profile?.displayName || authUser.displayName || '';
+        setCustomDisplayName(cloudName);
+        const cloudHandle =
+          memberDoc?.cfHandle || profile?.cfHandle || settings?.activeHandle;
+        if (cloudHandle) {
           void loadPrimaryHandle(cloudHandle);
         }
       } catch {
-        // Handled cleanly inside socialService
+        // Handled cleanly inside socialService / communityService
       } finally {
         setCheckingCloudHandle(false);
       }
@@ -326,7 +350,48 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, authUser]);
 
-  // Subscribe to personal upcoming contest reminders when authenticated
+  // Subscribe to community directory & contests only after enrollment (or Founder access)
+  useEffect(() => {
+    if (!authReady || !authUser || (!isCommunityEnrolled && !isFounder)) return;
+    setCommunityMembersLoading(true);
+    const unsubMembers = subscribeCommunityMembers((members) => {
+      setCommunityMembers(members);
+      setCommunityMembersLoading(false);
+      const mine = members.find((m) => m.uid === authUser.uid) ?? null;
+      if (mine) setOwnCommunityMember(mine);
+    });
+    const unsubContests = subscribeCommunityContests(setCommunityContests);
+    return () => {
+      unsubMembers();
+      unsubContests();
+    };
+  }, [authReady, authUser, isCommunityEnrolled, isFounder]);
+
+  // Subscribe to RSVPs for visible CodeGram contests
+  const communityContestIds = useMemo(
+    () => communityContests.slice(0, 12).map((c) => c.contestId),
+    [communityContests]
+  );
+
+  useEffect(() => {
+    if (!authReady || !authUser || (!isCommunityEnrolled && !isFounder) || communityContestIds.length === 0) {
+      return;
+    }
+    const unsub = subscribeCommunityContestRsvps(communityContestIds, setCommunityRsvpsByContest);
+    return () => unsub();
+  }, [authReady, authUser, isCommunityEnrolled, isFounder, communityContestIds]);
+
+  // Founder-only subscriptions for invite codes & host assignments
+  useEffect(() => {
+    if (!authReady || !authUser || !isFounder) return;
+    const unsubInvites = subscribeCommunityInvites(setCommunityInvites);
+    const unsubRoles = subscribeCommunityRoles(setCommunityRoles);
+    return () => {
+      unsubInvites();
+      unsubRoles();
+    };
+  }, [authReady, authUser, isFounder]);
+
   const upcomingContestIds = useMemo(() => {
     return contests
       .filter((c) => c.phase === 'BEFORE' || c.phase === 'CODING')
@@ -343,12 +408,40 @@ export default function App() {
 
   const primaryBundle = bundlesByHandle[activeHandle.toLowerCase()] ?? null;
 
-  // Sync user profile & settings to Firestore whenever signed-in user links/updates handle
+  // Auto-seed CodeGram Round 1 into Firestore once for Founder testing
+  useEffect(() => {
+    if (!authReady || !authUser || !isFounder || seededRound1Ref.current) return;
+    seededRound1Ref.current = true;
+    try {
+      if (localStorage.getItem('codegram_round1_seeded_v1') === '1') return;
+    } catch {
+      // Ignore storage errors
+    }
+    const handle = primaryBundle?.user.handle || activeHandle || 'codegram';
+    void ensureBackendTestingContestSeeded(authUser.uid, handle)
+      .then(() => {
+        try {
+          localStorage.setItem('codegram_round1_seeded_v1', '1');
+        } catch {
+          // Ignore storage errors
+        }
+      })
+      .catch(() => {
+        // Error surface handled inside communityService
+      });
+  }, [authReady, authUser, isFounder, primaryBundle?.user.handle, activeHandle]);
+
   useEffect(() => {
     if (!authReady || !authUser || !primaryBundle?.user.handle) return;
+    const preferredName =
+      ownCommunityMember?.displayName ||
+      customDisplayName ||
+      authUser.displayName ||
+      primaryBundle.user.handle;
+
     void upsertPublicProfile({
       uid: authUser.uid,
-      displayName: authUser.displayName || primaryBundle.user.handle,
+      displayName: preferredName,
       photoUrl: authUser.photoURL || primaryBundle.user.avatar || undefined,
       cfHandle: primaryBundle.user.handle,
       cfRating: primaryBundle.user.rating,
@@ -360,11 +453,60 @@ export default function App() {
       theme: isDark ? 'dark' : 'light',
       activeHandle: primaryBundle.user.handle,
     });
-  }, [authReady, authUser, primaryBundle, isDark]);
+    if (ownCommunityMember) {
+      const metrics = computeMemberCommunityMetrics(primaryBundle);
+      void syncOwnCommunityMemberStats({
+        uid: authUser.uid,
+        displayName: preferredName,
+        photoUrl: authUser.photoURL || primaryBundle.user.avatar || undefined,
+        cfHandle: primaryBundle.user.handle,
+        metrics,
+      });
+    }
+  }, [
+    authReady,
+    authUser,
+    primaryBundle,
+    isDark,
+    ownCommunityMember?.uid,
+    ownCommunityMember?.displayName,
+    customDisplayName,
+  ]);
 
   const analytics = useMemo(() => {
     return computeCodeforcesAnalytics(primaryBundle ?? EMPTY_BUNDLE, timeframe);
   }, [primaryBundle, timeframe]);
+
+  const communityMembersById = useMemo(() => {
+    const map: Record<string, CommunityMember> = {};
+    for (const m of communityMembers) map[m.uid] = m;
+    return map;
+  }, [communityMembers]);
+
+  const myCommunityRank = useMemo(() => {
+    if (!authUser || communityMembers.length === 0) return null;
+    const sorted = [...communityMembers].sort(
+      (a, b) =>
+        b.cfRating - a.cfRating ||
+        b.weeklySolves - a.weeklySolves ||
+        b.totalSolved - a.totalSolved
+    );
+    const idx = sorted.findIndex((m) => m.uid === authUser.uid);
+    return idx >= 0 ? idx + 1 : null;
+  }, [communityMembers, authUser]);
+
+  const effectiveCommunityContests = useMemo(() => {
+    if (communityContests.length > 0) return communityContests;
+    return [getDefaultTestingContest(authUser?.uid || 'founder', activeHandle || 'codegram')];
+  }, [communityContests, authUser?.uid, activeHandle]);
+
+  const nextCommunityContest = useMemo(() => {
+    return (
+      effectiveCommunityContests
+        .filter((c) => c.status !== 'completed')
+        .sort((a, b) => a.startsAtEpoch - b.startsAtEpoch)[0] ?? null
+    );
+  }, [effectiveCommunityContests]);
 
   const handleSignIn = async () => {
     setAuthBusy(true);
@@ -384,9 +526,20 @@ export default function App() {
 
   const handleNavigateTab = useCallback((tab: CodeGramTab) => {
     if (tab === 'questions') {
-      setQuestionsFocusMode('all');
+      setPracticeSubTab('problems');
     }
     setActiveTab(tab);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleOpenWeakTopics = useCallback(() => {
+    setPracticeSubTab('topics');
+    setActiveTab('questions');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleOpenContests = useCallback(() => {
+    setActiveTab('community');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
@@ -400,20 +553,7 @@ export default function App() {
 
   const handlePracticeTopic = (tag: string) => {
     setSelectedTopic(tag);
-    setQuestionsFocusMode('all');
-    setActiveTab('questions');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleViewLeftoversTopic = (tag: string) => {
-    setSelectedTopic(tag);
-    setActiveTab('leftovers');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handlePracticeLeftovers = () => {
-    setSelectedTopic(null);
-    setQuestionsFocusMode('leftovers');
+    setPracticeSubTab('problems');
     setActiveTab('questions');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -475,11 +615,13 @@ export default function App() {
       return;
     }
     const handle = primaryBundle?.user.handle || activeHandle || authUser.displayName || 'coder';
+    const preferredName =
+      ownCommunityMember?.displayName || customDisplayName || authUser.displayName || handle;
     await setContestRsvp({
       contestId,
       userId: authUser.uid,
       cfHandle: handle,
-      displayName: authUser.displayName || handle,
+      displayName: preferredName,
       cfRating: primaryBundle?.user.rating,
       status,
     });
@@ -496,66 +638,198 @@ export default function App() {
     await handleSetRsvp(contestId, existing ? null : 'competing');
   };
 
-  const onboardingStep: 'handle' | 'google' | null = !activeHandle
-    ? 'handle'
-    : needsGoogleSignupPrompt && !authUser
-    ? 'google'
-    : null;
+  const handleJoinCommunityWithInvite = async (inviteCode: string) => {
+    if (!authUser || !primaryBundle?.user.handle) {
+      throw new Error('Sign in with Google and link a Codeforces handle first.');
+    }
+    const metrics = computeMemberCommunityMetrics(primaryBundle);
+    const preferredName =
+      customDisplayName || authUser.displayName || primaryBundle.user.handle;
+    const created = await joinCommunityWithInvite({
+      uid: authUser.uid,
+      isFounder,
+      inviteCode,
+      displayName: preferredName,
+      photoUrl: authUser.photoURL || primaryBundle.user.avatar || undefined,
+      cfHandle: primaryBundle.user.handle,
+      metrics,
+    });
+    setOwnCommunityMember(created);
+  };
 
-  const handleOnboardingLink = async (handle: string) => {
-    const ok = await loadPrimaryHandle(handle);
-    if (ok && !authUser) {
-      setNeedsGoogleSignupPrompt(true);
+  const handleSetCommunityRsvp = async (contestId: string, status: RsvpStatus | null) => {
+    if (!authUser) {
+      await handleSignIn();
+      return;
+    }
+    if (!status) {
+      await removeCommunityContestRsvp(contestId, authUser.uid);
+      return;
+    }
+    const handle =
+      ownCommunityMember?.cfHandle || primaryBundle?.user.handle || activeHandle || 'coder';
+    const preferredName =
+      ownCommunityMember?.displayName || customDisplayName || authUser.displayName || handle;
+    await setCommunityContestRsvp({
+      contestId,
+      userId: authUser.uid,
+      cfHandle: handle,
+      displayName: preferredName,
+      photoUrl: authUser.photoURL || ownCommunityMember?.photoUrl || primaryBundle?.user.avatar,
+      cfRating: ownCommunityMember?.cfRating ?? primaryBundle?.user.rating ?? 0,
+      status,
+    });
+  };
+
+  const handleToggleQuickCommunityRsvp = async (contestId: string) => {
+    if (!authUser) {
+      await handleSignIn();
+      return;
+    }
+    const existing = (communityRsvpsByContest[contestId] ?? []).find(
+      (r) => r.userId === authUser.uid
+    );
+    await handleSetCommunityRsvp(contestId, existing ? null : 'competing');
+  };
+
+  const handleUpdateTrainingFocus = async (trainingFocus: string[], goalLabel?: string) => {
+    if (!authUser) return;
+    await updateOwnTrainingFocus(authUser.uid, trainingFocus, goalLabel);
+  };
+
+  const handleSelectMemberFromRsvp = (uid: string, fallback?: CommunityContestRsvp) => {
+    const found = communityMembersById[uid];
+    if (found) {
+      setSelectedMemberDrawer(found);
+      return;
+    }
+    if (fallback) {
+      setSelectedMemberDrawer({
+        uid: fallback.userId,
+        displayName: fallback.displayName,
+        photoUrl: fallback.photoUrl,
+        cfHandle: fallback.cfHandle,
+        cfRating: fallback.cfRating,
+        cfMaxRating: fallback.cfRating,
+        cfRank: 'member',
+        lastContestDelta: 0,
+        weeklySolves: 0,
+        currentStreak: 0,
+        totalSolved: 0,
+        trainingFocus: [],
+        inviteCode: '',
+        isCommunityVisible: true,
+        joinedAt: fallback.updatedAt,
+        updatedAt: fallback.updatedAt,
+      });
     }
   };
 
-  const handleBackToOnboardingHandle = () => {
-    setNeedsGoogleSignupPrompt(false);
-    setActiveHandle('');
+  const onboardingStep: 'login' | 'details' | 'whatsapp' | null = !authUser
+    ? 'login'
+    : showWhatsAppGreeting
+    ? 'whatsapp'
+    : !ownCommunityMember || !activeHandle
+    ? 'details'
+    : null;
+
+  const isAuthBootstrapping = !authReady || (Boolean(authUser) && checkingCloudHandle);
+
+  const handleCompleteOnboarding = async (fullName: string, cfHandle: string) => {
+    if (!authUser) return;
+    const cleanName = fullName.trim();
+    const cleanHandle = cfHandle.trim();
+    if (!cleanName || !cleanHandle) return;
+
+    setSubmittingOnboarding(true);
     setPrimaryError(null);
+
     try {
-      localStorage.removeItem(STORAGE_HANDLE_KEY);
-    } catch {
-      // Ignore storage errors
+      const bundle = await loadPrimaryHandle(cleanHandle);
+      if (!bundle) return;
+
+      const canonHandle = bundle.user.handle;
+      const metrics = computeMemberCommunityMetrics(bundle);
+      const photoUrl = authUser.photoURL || bundle.user.avatar || undefined;
+
+      await Promise.all([
+        upsertPublicProfile({
+          uid: authUser.uid,
+          displayName: cleanName,
+          photoUrl,
+          cfHandle: canonHandle,
+          cfRating: bundle.user.rating,
+          cfRank: bundle.user.rank,
+        }),
+        upsertPrivateSettings({
+          uid: authUser.uid,
+          email: authUser.email,
+          theme: isDark ? 'dark' : 'light',
+          activeHandle: canonHandle,
+        }),
+      ]);
+
+      const member = await joinCommunityDefault({
+        uid: authUser.uid,
+        isFounder,
+        displayName: cleanName,
+        photoUrl,
+        cfHandle: canonHandle,
+        metrics,
+      });
+
+      setCustomDisplayName(cleanName);
+      setOwnCommunityMember(member);
+      setShowWhatsAppGreeting(true);
+    } catch (err) {
+      setPrimaryError(
+        err instanceof Error ? err.message : 'Could not complete your profile. Please try again.'
+      );
+    } finally {
+      setSubmittingOnboarding(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FAF8F5] dark:bg-[#121110] text-stone-900 dark:text-stone-100">
+    <div className="min-h-screen flex flex-col bg-[#F8FAFC] dark:bg-[#0B0F17] text-slate-900 dark:text-slate-100">
       <TopBar
         activeTab={activeTab}
         isSignedIn={Boolean(authUser)}
         isDark={isDark}
-        hasLinkedHandle={onboardingStep === null}
+        hasLinkedHandle={!isAuthBootstrapping && onboardingStep === null}
         onChangeTab={handleNavigateTab}
         onPrimaryAction={handlePrimaryAction}
         onToggleTheme={() => setIsDark((prev) => !prev)}
       />
 
-      <main className="flex-1 max-w-[1160px] w-full mx-auto px-4 sm:px-6 py-6 pb-12 space-y-6">
-        {onboardingStep ? (
-          authReady && !checkingCloudHandle ? (
-            <OnboardingHandleGate
-              step={onboardingStep}
-              authUser={authUser}
-              authReady={authReady}
-              authBusy={authBusy}
-              authError={authError}
-              loading={loadingPrimary}
-              error={primaryError}
-              linkedHandle={activeHandle}
-              linkedBundle={primaryBundle}
-              onLinkHandle={(h) => void handleOnboardingLink(h)}
-              onSignIn={handleSignIn}
-              onSignOut={handleSignOut}
-              onSkipGoogle={() => setNeedsGoogleSignupPrompt(false)}
-              onBackToHandle={handleBackToOnboardingHandle}
-            />
-          ) : (
-            <div className="min-h-[60vh] flex items-center justify-center">
-              <div className="w-full max-w-md h-64 rounded-2xl bg-white dark:bg-[#1B1917] border border-stone-200/80 dark:border-stone-800 animate-pulse" />
-            </div>
-          )
+      <main className="flex-1 max-w-[1160px] w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] space-y-4 sm:space-y-6">
+        {isAuthBootstrapping ? (
+          <div className="min-h-[60vh] flex items-center justify-center">
+            <div className="w-full max-w-md h-64 rounded-2xl bg-white dark:bg-[#121824] border border-slate-200/90 dark:border-slate-800 animate-pulse" />
+          </div>
+        ) : onboardingStep ? (
+          <OnboardingHandleGate
+            step={onboardingStep}
+            authUser={authUser}
+            authBusy={authBusy}
+            authError={authError}
+            loading={loadingPrimary || submittingOnboarding}
+            error={primaryError}
+            initialName={customDisplayName || authUser?.displayName || ''}
+            initialHandle={activeHandle}
+            linkedHandle={activeHandle}
+            linkedBundle={primaryBundle}
+            memberName={
+              ownCommunityMember?.displayName ||
+              customDisplayName ||
+              authUser?.displayName ||
+              ''
+            }
+            onSignIn={handleSignIn}
+            onSignOut={handleSignOut}
+            onSubmitDetails={(name, handle) => void handleCompleteOnboarding(name, handle)}
+            onEnterPlatform={() => setShowWhatsAppGreeting(false)}
+          />
         ) : (
           <>
             {/* HOME: Personal Coach Dashboard & Focus Workspaces */}
@@ -574,91 +848,107 @@ export default function App() {
                 contests={contests}
                 contestsLoading={contestsLoading}
                 rsvpsByContest={rsvpsByContest}
+                isEnrolled={isCommunityEnrolled}
+                isFounder={isFounder}
+                communityRank={myCommunityRank}
+                communityMemberCount={communityMembers.length}
+                nextCommunityContest={nextCommunityContest}
+                nextCommunityRsvps={
+                  nextCommunityContest
+                    ? communityRsvpsByContest[nextCommunityContest.contestId] ?? []
+                    : []
+                }
                 onSignIn={handleSignIn}
                 onSignOut={handleSignOut}
-                onSelectHandle={(h) => void loadPrimaryHandle(h)}
                 onRefreshHandle={() => void loadPrimaryHandle(activeHandle, true)}
+                onJoinWithInvite={handleJoinCommunityWithInvite}
+                onToggleCommunityRsvp={handleToggleQuickCommunityRsvp}
                 onToggleRsvp={handleToggleQuickRsvp}
+                onToggleBookmark={handleToggleBookmark}
                 onNavigateTab={handleNavigateTab}
                 onPracticeTopic={handlePracticeTopic}
+                onOpenWeakTopics={handleOpenWeakTopics}
+                onOpenContests={handleOpenContests}
               />
             )}
 
-            {/* PERSONALIZED QUESTIONS */}
+            {/* CODEGRAM COMMUNITY */}
+            {activeTab === 'community' && (
+              <CommunityView
+                isSignedIn={Boolean(authUser)}
+                isFounder={isFounder}
+                hasHandle={Boolean(primaryBundle?.user.handle)}
+                cfHandle={primaryBundle?.user.handle || activeHandle}
+                authBusy={authBusy}
+                isEnrolled={isCommunityEnrolled}
+                currentUid={authUser?.uid ?? null}
+                members={communityMembers}
+                loadingMembers={communityMembersLoading}
+                communityContests={effectiveCommunityContests}
+                communityRsvpsByContest={communityRsvpsByContest}
+                communityMembersById={communityMembersById}
+                onSignIn={handleSignIn}
+                onJoinWithInvite={handleJoinCommunityWithInvite}
+                onSelectMember={(m) => setSelectedMemberDrawer(m)}
+                onSelectMemberById={handleSelectMemberFromRsvp}
+                onOpenInvites={() => {
+                  setOrganizerInitialSection('invites');
+                  setOrganizerModalOpen(true);
+                }}
+              />
+            )}
+
+            {/* PRACTICE & WEAK TOPICS */}
             {activeTab === 'questions' && (
               <SuggestedProblemsView
                 bundle={primaryBundle ?? EMPTY_BUNDLE}
                 timeframeTopicStats={analytics.topicStats}
+                timeframe={timeframe}
                 selectedTopic={selectedTopic}
                 bookmarks={bookmarks}
-                initialFocusMode={questionsFocusMode}
-                onSelectTopic={setSelectedTopic}
-                onToggleBookmark={handleToggleBookmark}
-              />
-            )}
-
-            {/* WEAK TOPICS */}
-            {activeTab === 'topics' && (
-              <TopicStruggleSection
-                handle={primaryBundle?.user.handle ?? activeHandle}
-                topics={analytics.topicStats}
-                selectedTopic={selectedTopic}
-                timeframe={timeframe}
+                subTab={practiceSubTab}
+                loadingAnalytics={loadingPrimary && !primaryBundle}
+                onChangeSubTab={setPracticeSubTab}
                 onChangeTimeframe={setTimeframe}
                 onSelectTopic={setSelectedTopic}
-                onPracticeTopic={handlePracticeTopic}
-                onViewLeftoversTopic={handleViewLeftoversTopic}
-                loading={loadingPrimary && !primaryBundle}
-              />
-            )}
-
-            {/* LEFTOVER THINGS */}
-            {activeTab === 'leftovers' && (
-              <LeftoversView
-                bundle={primaryBundle ?? EMPTY_BUNDLE}
-                stuckProblems={analytics.stuckProblems}
-                submissions={analytics.filteredSubmissions}
-                bookmarks={bookmarks}
-                selectedTopic={selectedTopic}
-                loading={loadingPrimary && !primaryBundle}
-                onSelectTopic={setSelectedTopic}
                 onToggleBookmark={handleToggleBookmark}
-                onPracticeLeftovers={handlePracticeLeftovers}
               />
             )}
 
-            {/* MY STATS */}
+            {/* YOU: Personal Identity, Community Standing & Analytics */}
             {activeTab === 'stats' && (
               <>
                 <ProfileToolbar
                   user={primaryBundle?.user ?? null}
+                  displayName={
+                    ownCommunityMember?.displayName ||
+                    customDisplayName ||
+                    authUser?.displayName ||
+                    activeHandle
+                  }
                   activeHandle={activeHandle}
-                  recentHandles={recentHandles}
-                  timeframe={timeframe}
                   loading={loadingPrimary}
                   isDark={isDark}
-                  inputRef={handleInputRef}
-                  onSelectHandle={(h) => {
-                    setActiveHandle(h);
-                    void loadPrimaryHandle(h);
-                  }}
+                  communityMember={ownCommunityMember}
+                  communityRank={myCommunityRank}
+                  communityMemberCount={communityMembers.length}
+                  onOpenCommunity={() => handleNavigateTab('community')}
                   onRefresh={() => void loadPrimaryHandle(activeHandle, true)}
-                  onChangeTimeframe={setTimeframe}
                   onToggleTheme={() => setIsDark((prev) => !prev)}
                 />
 
                 {primaryError && (
                   <div
                     role="alert"
-                    className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/60 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
                   >
                     <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                      <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-semibold text-rose-900 dark:text-rose-200">
+                        <p className="text-sm font-semibold text-red-900 dark:text-red-200">
                           Could not load Codeforces data
                         </p>
-                        <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                        <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
                           {primaryError}
                         </p>
                       </div>
@@ -666,7 +956,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => void loadPrimaryHandle(activeHandle, true)}
-                      className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 text-white transition-colors self-start sm:self-auto whitespace-nowrap shrink-0"
+                      className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-red-600 hover:bg-red-700 text-white transition-colors self-start sm:self-auto whitespace-nowrap shrink-0"
                     >
                       Retry
                     </button>
@@ -674,56 +964,23 @@ export default function App() {
                 )}
 
                 {!primaryBundle && !loadingPrimary && !primaryError ? (
-                  <section className="bg-white dark:bg-[#1B1917] border border-dashed border-stone-300 dark:border-stone-700 rounded-2xl p-10 sm:p-14 text-center">
-                    <h2 className="font-display text-lg font-semibold text-stone-900 dark:text-stone-100">
-                      Connect your Codeforces account
+                  <section className="bg-white dark:bg-[#121824] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-8 sm:p-12 text-center">
+                    <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-slate-100">
+                      Syncing @{activeHandle}
                     </h2>
-                    <p className="mt-1.5 text-sm text-stone-500 dark:text-stone-400 max-w-md mx-auto">
-                      Enter your Codeforces handle in the bar above to load your official submission history, difficulty progression, and personal practice diagnostics.
+                    <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                      Click refresh to fetch your latest official Codeforces submission history and analytics.
                     </p>
                     <button
                       type="button"
-                      onClick={() => handleInputRef.current?.focus()}
-                      className="mt-5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-600 rounded-xl transition-colors"
+                      onClick={() => void loadPrimaryHandle(activeHandle, true)}
+                      className="mt-5 px-4 py-2 text-xs font-semibold text-white bg-[#0047CC] hover:bg-[#0039A6] dark:bg-blue-600 dark:hover:bg-blue-500 rounded-xl transition-colors"
                     >
-                      Enter Codeforces Handle
+                      Refresh Data
                     </button>
                   </section>
                 ) : (
                   <>
-                    {/* Quick Action Strip to Practice Workspaces */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-[#1B1917] border border-stone-200/80 dark:border-stone-800 rounded-2xl px-4 py-3">
-                      <span className="text-xs text-stone-500 dark:text-stone-400">
-                        Turn these stats into action:
-                      </span>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleNavigateTab('questions')}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-600 text-white transition-colors"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Personalized Questions</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleNavigateTab('topics')}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-rose-400 transition-colors"
-                        >
-                          <Target className="w-3.5 h-3.5 text-rose-500" />
-                          <span>Weak Topics</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleNavigateTab('leftovers')}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-rose-400 transition-colors"
-                        >
-                          <ListChecks className="w-3.5 h-3.5 text-rose-500" />
-                          <span>Leftover Things ({analytics.stuckProblems.length})</span>
-                        </button>
-                      </div>
-                    </div>
-
                     <KpiStrip analytics={analytics} loading={loadingPrimary && !primaryBundle} />
                     <ActivityHeatmap
                       days={analytics.heatmapDays}
@@ -748,24 +1005,39 @@ export default function App() {
               </>
             )}
 
-            {/* UPCOMING ROUNDS */}
-            {activeTab === 'rounds' && (
-              <RoundsView
-                contests={contests}
-                loading={contestsLoading}
-                error={contestsError}
-                rsvpsByContest={rsvpsByContest}
-                currentUserId={authUser?.uid ?? null}
-                primaryBundle={primaryBundle}
-                onRefresh={() => void loadContests(true)}
-                onSetRsvp={handleSetRsvp}
-                onSignIn={handleSignIn}
-                onOpenUpsolves={() => handleNavigateTab('leftovers')}
-              />
-            )}
           </>
         )}
       </main>
+
+      <MemberProfileDrawer
+        member={selectedMemberDrawer}
+        currentMember={ownCommunityMember}
+        isOwnProfile={Boolean(authUser && selectedMemberDrawer?.uid === authUser.uid)}
+        isHostBadge={Boolean(
+          selectedMemberDrawer &&
+            communityRoles.some((r) => r.uid === selectedMemberDrawer.uid)
+        )}
+        onClose={() => setSelectedMemberDrawer(null)}
+        onPracticeTopic={handlePracticeTopic}
+        onUpdateTrainingFocus={handleUpdateTrainingFocus}
+      />
+
+      {authUser && isFounder && (
+        <OrganizerPanelModal
+          open={organizerModalOpen}
+          initialSection={organizerInitialSection}
+          isFounder={isFounder}
+          currentUid={authUser.uid}
+          currentHandle={ownCommunityMember?.cfHandle || activeHandle || 'organizer'}
+          contests={communityContests}
+          invites={communityInvites}
+          roles={communityRoles}
+          members={communityMembers}
+          onClose={() => setOrganizerModalOpen(false)}
+        />
+      )}
+
+      <OfflineIndicator />
     </div>
   );
 }

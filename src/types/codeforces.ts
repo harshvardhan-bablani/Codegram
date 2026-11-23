@@ -181,7 +181,7 @@ export interface AnalyticsSummary {
   filteredSubmissions: CFSubmission[];
 }
 
-export type CodeGramTab = 'home' | 'questions' | 'topics' | 'leftovers' | 'stats' | 'rounds';
+export type CodeGramTab = 'home' | 'community' | 'questions' | 'stats';
 
 export interface CFContest {
   id: number;
@@ -240,6 +240,78 @@ export interface ContestRsvp {
   isPublic: boolean;
   updatedAt: number;
 }
+
+export interface CommunityInvite {
+  code: string;
+  label: string;
+  active: boolean;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CommunityRole {
+  uid: string;
+  role: 'host';
+  cfHandle: string;
+  displayName: string;
+  assignedBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CommunityMember {
+  uid: string;
+  displayName: string;
+  photoUrl?: string;
+  cfHandle: string;
+  cfRating: number;
+  cfMaxRating: number;
+  cfRank: string;
+  lastContestDelta: number;
+  weeklySolves: number;
+  currentStreak: number;
+  totalSolved: number;
+  trainingFocus: string[];
+  goalLabel?: string;
+  inviteCode: string;
+  isCommunityVisible: boolean;
+  joinedAt: number;
+  updatedAt: number;
+}
+
+export type CommunityContestStatus = 'upcoming' | 'live' | 'completed';
+
+export interface CommunityContest {
+  contestId: string;
+  title: string;
+  summary?: string;
+  platform: 'Codeforces';
+  contestUrl: string;
+  startsAtEpoch: number;
+  durationMinutes: number;
+  divisionTag: string;
+  hostUid: string;
+  hostHandle: string;
+  status: CommunityContestStatus;
+  isCommunityVisible: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CommunityContestRsvp {
+  userId: string;
+  contestId: string;
+  cfHandle: string;
+  displayName: string;
+  photoUrl?: string;
+  cfRating: number;
+  status: RsvpStatus;
+  isCommunityVisible: boolean;
+  updatedAt: number;
+}
+
+export type LeaderboardMetric = 'rating' | 'weekly';
 
 export interface CFProblemStatistic {
   contestId?: number;

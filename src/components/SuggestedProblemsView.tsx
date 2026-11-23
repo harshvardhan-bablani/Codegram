@@ -2,11 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Bookmark,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Dices,
   ExternalLink,
   RefreshCw,
+  Search,
   Shuffle,
-  Sparkles,
   X,
 } from 'lucide-react';
 import type {
@@ -17,6 +19,7 @@ import type {
   FocusModeKey,
   ProblemBookmark,
   SuggestedProblem,
+  TimeframeKey,
   TopicStats,
 } from '../types/codeforces';
 import {
@@ -25,19 +28,25 @@ import {
 } from '../services/codeforcesApi';
 import {
   computeTopicPracticeProfile,
-  CORE_CF_TOPICS,
   generateSuggestedProblems,
   getProblemKey,
   getProblemUrl,
   getRankColor,
 } from '../utils/analytics';
 
+export type PracticeSubTab = 'problems' | 'topics';
+
 interface SuggestedProblemsViewProps {
   bundle: CFBundle;
   timeframeTopicStats: TopicStats[];
+  timeframe: TimeframeKey;
   selectedTopic: string | null;
   bookmarks: ProblemBookmark[];
   initialFocusMode?: FocusModeKey;
+  subTab: PracticeSubTab;
+  loadingAnalytics?: boolean;
+  onChangeSubTab: (tab: PracticeSubTab) => void;
+  onChangeTimeframe: (tf: TimeframeKey) => void;
   onSelectTopic: (tag: string | null) => void;
   onToggleBookmark: (problem: {
     problemKey: string;
@@ -50,24 +59,33 @@ interface SuggestedProblemsViewProps {
 }
 
 const DIFFICULTY_BANDS: { key: DifficultyBandKey; label: string; hint: string }[] = [
-  { key: 'consolidate', label: 'Consolidate', hint: 'Level -100 to Level' },
-  { key: 'sweet_spot', label: 'Sweet Spot', hint: 'Level to +200' },
-  { key: 'stretch', label: 'Stretch', hint: 'Level +200 to +400' },
+  { key: 'consolidate', label: 'Warmup', hint: 'Comfort zone (-100 to current level)' },
+  { key: 'sweet_spot', label: 'Sweet Spot', hint: 'Best growth zone (current level to +200)' },
+  { key: 'stretch', label: 'Challenge', hint: 'Harder stretch (+200 to +400)' },
 ];
 
 const FOCUS_MODES: { key: FocusModeKey; label: string }[] = [
-  { key: 'all', label: 'All Focus' },
-  { key: 'weak', label: 'Weak Topics' },
-  { key: 'underexplored', label: 'Underexplored' },
-  { key: 'leftovers', label: 'Retry Leftovers' },
+  { key: 'all', label: 'All' },
+  { key: 'weak', label: 'Weak' },
+  { key: 'underexplored', label: 'New' },
+];
+
+const TIMEFRAMES: { key: TimeframeKey; label: string }[] = [
+  { key: '30d', label: '30D' },
+  { key: '90d', label: '90D' },
+  { key: '1y', label: '1Y' },
+  { key: 'all', label: 'All' },
 ];
 
 export const SuggestedProblemsView: React.FC<SuggestedProblemsViewProps> = ({
   bundle,
   timeframeTopicStats,
+  timeframe,
   selectedTopic,
   bookmarks,
   initialFocusMode = 'all',
+  loadingAnalytics = false,
+  onChangeTimeframe,
   onSelectTopic,
   onToggleBookmark,
 }) => {
@@ -83,6 +101,9 @@ export const SuggestedProblemsView: React.FC<SuggestedProblemsViewProps> = ({
   const [pageOffset, setPageOffset] = useState<number>(0);
   const [pickedProblem, setPickedProblem] = useState<SuggestedProblem | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  const [showAllTopics, setShowAllTopics] = useState<boolean>(false);
+  const [topicSearch, setTopicSearch] = useState<string>('');
 
   useEffect(() => {
     setFocusMode(initialFocusMode);
@@ -177,13 +198,19 @@ export const SuggestedProblemsView: React.FC<SuggestedProblemsViewProps> = ({
     bookmarkStatusMap,
   ]);
 
-  const topicOptions = useMemo(() => {
-    const set = new Set<string>(CORE_CF_TOPICS);
-    for (const w of profile.weakTopics) set.add(w.tag);
-    for (const u of profile.underexploredTopics) set.add(u.tag);
-    if (selectedTopic) set.add(selectedTopic);
-    return Array.from(set).sort();
-  }, [profile, selectedTopic]);
+  const { orderedTopics } = useMemo(() => {
+    const q = topicSearch.trim().toLowerCase();
+    const sorted = [...timeframeTopicStats].sort(
+      (a, b) =>
+        b.struggleScore - a.struggleScore ||
+        b.unsolvedProblems - a.unsolvedProblems ||
+        a.attemptedProblems - b.attemptedProblems
+    );
+    const filtered = q ? sorted.filter((t) => t.tag.toLowerCase().includes(q)) : sorted;
+    return { orderedTopics: filtered };
+  }, [timeframeTopicStats, topicSearch]);
+
+  const displayedTopics = showAllTopics ? orderedTopics : orderedTopics.slice(0, 7);
 
   const handlePickOne = () => {
     if (suggestions.length === 0) return;
@@ -207,39 +234,189 @@ export const SuggestedProblemsView: React.FC<SuggestedProblemsViewProps> = ({
     }
   };
 
+  const totalPages = Math.max(1, Math.ceil(totalMatching / 20));
+  const currentPage = (pageOffset % totalPages) + 1;
+
   return (
-    <div className="space-y-6">
-      {/* Practice Level & Focus Profile */}
-      <section className="bg-white dark:bg-[#1B1917] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-5">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
-          <div>
-            <h1 className="font-display text-xl font-bold text-stone-900 dark:text-stone-100">
-              Personalized Practice Questions
-            </h1>
-            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              Unsolved problems matched to your live rating, weaker topics, underexplored core areas, and unfinished leftovers.
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
+      {/* PANEL 1: WEAK TOPICS RAIL */}
+      <section
+        id="weak-topics-panel"
+        aria-label="Weak Topics"
+        className="lg:col-span-4 bg-white dark:bg-[#121824] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="font-display text-sm font-bold text-slate-900 dark:text-slate-100">
+              Weak Topics
+            </h2>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Select a topic to filter
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 self-start shrink-0">
+          <select
+            aria-label="Topics timeframe"
+            value={timeframe}
+            onChange={(e) => onChangeTimeframe(e.target.value as TimeframeKey)}
+            className="px-2.5 py-1 text-xs font-medium bg-slate-50 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 shrink-0"
+          >
+            {TIMEFRAMES.map((tf) => (
+              <option key={tf.key} value={tf.key}>
+                {tf.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {showAllTopics && (
+          <div className="relative">
+            <Search
+              className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              aria-hidden="true"
+            />
+            <input
+              type="text"
+              value={topicSearch}
+              onChange={(e) => setTopicSearch(e.target.value)}
+              placeholder="Filter topics..."
+              aria-label="Filter topics"
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
+
+        {loadingAnalytics ? (
+          <div className="space-y-2">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800/60 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : displayedTopics.length === 0 ? (
+          <p className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+            No topic data in this timeframe.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {displayedTopics.map((t) => {
+              const uncovered = Boolean(t.isUncovered || t.attemptedProblems === 0);
+              const isSelected = selectedTopic === t.tag;
+              const solvePct = uncovered
+                ? 0
+                : Math.round((t.solvedProblems / Math.max(1, t.attemptedProblems)) * 100);
+              const barColor =
+                t.unsolvedProblems === 0
+                  ? 'bg-emerald-500'
+                  : solvePct >= 50
+                    ? 'bg-[#0047CC] dark:bg-blue-500'
+                    : 'bg-amber-500';
+
+              return (
+                <button
+                  key={t.tag}
+                  type="button"
+                  title={
+                    uncovered
+                      ? '0 attempts'
+                      : `${t.solvedProblems} solved of ${t.attemptedProblems} attempted · ${t.avgAttemptsToAc.toFixed(1)} avg tries`
+                  }
+                  onClick={() => {
+                    setShowSavedOnly(false);
+                    onSelectTopic(isSelected ? null : t.tag);
+                  }}
+                  className={`w-full text-left py-2 px-2.5 -mx-2.5 rounded-xl transition-colors ${
+                    isSelected
+                      ? 'bg-blue-50/90 dark:bg-blue-950/40'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-800/35'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`text-xs sm:text-[13px] font-medium capitalize truncate ${
+                        isSelected
+                          ? 'font-semibold text-[#0047CC] dark:text-blue-400'
+                          : 'text-slate-800 dark:text-slate-200'
+                      }`}
+                    >
+                      {t.tag}
+                    </span>
+                    <span
+                      className={`font-mono text-[11px] tabular-nums shrink-0 ${
+                        uncovered
+                          ? 'text-rose-500 dark:text-rose-400'
+                          : t.unsolvedProblems > 0
+                            ? 'text-slate-600 dark:text-slate-300'
+                            : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {uncovered ? 'Untried' : `${t.solvedProblems}/${t.attemptedProblems}`}
+                    </span>
+                  </div>
+
+                  <div className="mt-1.5 h-1 w-full rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800">
+                    {uncovered ? (
+                      <div className="h-full w-1/4 rounded-full bg-rose-300/80 dark:bg-rose-800/70" />
+                    ) : (
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+                        style={{ width: `${Math.max(8, solvePct)}%` }}
+                      />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {orderedTopics.length > 7 && (
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAllTopics((prev) => !prev);
+                setTopicSearch('');
+              }}
+              className="text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-[#0047CC] dark:hover:text-blue-400 transition-colors"
+            >
+              {showAllTopics ? 'Show fewer' : `Show all ${orderedTopics.length} topics`}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* PANEL 2: RECOMMENDED PROBLEMS */}
+      <section
+        id="recommended-problems-panel"
+        aria-label="Recommended Problems"
+        className="lg:col-span-8 bg-white dark:bg-[#121824] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="min-w-0">
+            <h2 className="font-display text-base font-bold text-slate-900 dark:text-slate-100">
+              {showSavedOnly ? 'Saved Problems' : 'Recommended Problems'}
+            </h2>
+            <p className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">
+              {showSavedOnly
+                ? `${savedBookmarks.length} saved`
+                : `${ratingRange[0]}–${ratingRange[1]}${
+                    !loading ? ` · ${totalMatching.toLocaleString()} matching` : ''
+                  }`}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={handlePickOne}
               disabled={loading || suggestions.length === 0 || showSavedOnly}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-600 text-white disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-[#0047CC] hover:bg-[#0039A6] dark:bg-blue-600 dark:hover:bg-blue-500 text-white disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
             >
               <Dices className="w-3.5 h-3.5" />
-              <span>Pick One For Me</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setPageOffset((prev) => prev + 1)}
-              disabled={loading || totalMatching <= 20 || showSavedOnly}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
-            >
-              <Shuffle className="w-3.5 h-3.5" />
-              <span>Next Set</span>
+              <span>Pick One</span>
             </button>
 
             <button
@@ -248,39 +425,128 @@ export const SuggestedProblemsView: React.FC<SuggestedProblemsViewProps> = ({
               disabled={loading}
               title="Refresh Codeforces problemset"
               aria-label="Refresh Codeforces problemset"
-              className="p-2 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-50 transition-colors"
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Clean Single Filter Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          {!showSavedOnly ? (
+            <div
+              role="group"
+              aria-label="Difficulty"
+              className="max-w-full overflow-x-auto no-scrollbar inline-flex items-center p-0.5 bg-slate-100 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-800 rounded-xl"
+            >
+              {DIFFICULTY_BANDS.map((band) => {
+                const dotColor =
+                  band.key === 'consolidate'
+                    ? 'bg-emerald-500'
+                    : band.key === 'sweet_spot'
+                      ? 'bg-[#0047CC] dark:bg-blue-400'
+                      : 'bg-violet-500';
+                return (
+                  <button
+                    key={band.key}
+                    type="button"
+                    title={band.hint}
+                    onClick={() => setDifficultyBand(band.key)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                      difficultyBand === band.key
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} aria-hidden="true" />
+                    <span>{band.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div />
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedTopic && !showSavedOnly && (
+              <button
+                type="button"
+                onClick={() => onSelectTopic(null)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-xl bg-blue-50 dark:bg-blue-950/40 text-[#0047CC] dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/70 transition-colors capitalize whitespace-nowrap shrink-0"
+              >
+                <span>{selectedTopic}</span>
+                <X className="w-3 h-3" />
+              </button>
+            )}
+
+            {!showSavedOnly && (
+              <select
+                aria-label="Problem focus"
+                value={focusMode}
+                onChange={(e) => setFocusMode(e.target.value as FocusModeKey)}
+                className="px-2.5 py-1.5 text-xs font-medium bg-slate-50 dark:bg-[#0E131D] border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 shrink-0"
+              >
+                {FOCUS_MODES.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.key === 'all'
+                      ? 'All topics'
+                      : m.key === 'weak'
+                        ? 'Weak topics'
+                        : 'New topics'}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowSavedOnly((v) => !v)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-xl border transition-colors whitespace-nowrap shrink-0 tabular-nums ${
+                showSavedOnly
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
+              }`}
+            >
+              <Bookmark className={`w-3.5 h-3.5 ${showSavedOnly ? 'fill-current' : ''}`} />
+              <span>Saved ({savedBookmarks.length})</span>
             </button>
           </div>
         </div>
 
         {/* Spotlight Pick */}
         {pickedProblem && !showSavedOnly && (
-          <div className="mb-5 p-4 rounded-2xl border border-rose-300 dark:border-rose-800/80 bg-rose-50/70 dark:bg-rose-950/25 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="space-y-1 min-w-0">
-              <p className="text-[11px] font-semibold text-rose-700 dark:text-rose-400 inline-flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Next Challenge Pick</span>
-              </p>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-sm font-semibold text-stone-500 dark:text-stone-400">
-                  {pickedProblem.contestId}
-                  {pickedProblem.index}
-                </span>
-                <span className="font-display text-base font-bold text-stone-900 dark:text-stone-100">
-                  {pickedProblem.name}
-                </span>
-                <span
-                  className="font-mono text-sm font-bold tabular-nums"
-                  style={{ color: getRankColor(pickedProblem.rating) }}
-                >
-                  {pickedProblem.rating}
-                </span>
+          <div className="p-3.5 sm:p-4 rounded-xl border border-blue-200 dark:border-blue-800/80 bg-gradient-to-br from-blue-50/90 via-white to-indigo-50/50 dark:from-blue-950/40 dark:via-[#121824] dark:to-indigo-950/25 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-blue-100/90 dark:bg-blue-900/50 text-[#0047CC] dark:text-blue-300 flex items-center justify-center shrink-0 mt-0.5">
+                <Dices className="w-4 h-4" />
               </div>
-              <p className="text-xs text-stone-600 dark:text-stone-300">
-                {pickedProblem.reasonText} · {pickedProblem.tags.slice(0, 4).join(' · ')}
-              </p>
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    {pickedProblem.contestId}
+                    {pickedProblem.index}
+                  </span>
+                  <span className="font-display text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
+                    {pickedProblem.name}
+                  </span>
+                  <span
+                    className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums"
+                    style={{
+                      color: getRankColor(pickedProblem.rating),
+                      backgroundColor: `${getRankColor(pickedProblem.rating)}16`,
+                    }}
+                  >
+                    {pickedProblem.rating}
+                  </span>
+                </div>
+                {pickedProblem.tags.length > 0 && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                    {pickedProblem.tags.slice(0, 3).join(' · ')}
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
@@ -288,16 +554,24 @@ export const SuggestedProblemsView: React.FC<SuggestedProblemsViewProps> = ({
                 href={pickedProblem.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 hover:opacity-90 whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-[#0047CC] hover:bg-[#0039A6] dark:bg-blue-600 dark:hover:bg-blue-500 text-white whitespace-nowrap"
               >
-                <span>Solve on CF</span>
+                <span>Solve</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
               <button
                 type="button"
+                onClick={handlePickOne}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-xl border border-blue-200 dark:border-blue-800 text-slate-700 dark:text-slate-200 hover:bg-white/70 dark:hover:bg-slate-800/70 whitespace-nowrap"
+              >
+                <Shuffle className="w-3.5 h-3.5" />
+                <span>Another</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setPickedProblem(null)}
                 aria-label="Dismiss picked problem"
-                className="p-2 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-xl"
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -305,432 +579,257 @@ export const SuggestedProblemsView: React.FC<SuggestedProblemsViewProps> = ({
           </div>
         )}
 
-        {/* 3-Column Profile Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-          {/* Estimated Level */}
-          <div className="p-4 rounded-2xl border border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-[#141210]/60">
-            <p className="text-xs font-medium text-stone-500 dark:text-stone-400">
-              Current Target Level
-            </p>
-            <div className="mt-1.5 flex items-baseline gap-2.5">
-              <span
-                className="font-mono text-2xl font-bold tabular-nums"
-                style={{ color: getRankColor(profile.estimatedLevel) }}
-              >
-                {profile.estimatedLevel}
-              </span>
-              <span className="text-xs font-mono text-stone-500 dark:text-stone-400 tabular-nums">
-                Range {ratingRange[0]}–{ratingRange[1]}
-              </span>
-            </div>
-            <p className="mt-1 text-[11px] text-stone-500 dark:text-stone-400">
-              {profile.levelSource}
-            </p>
-          </div>
-
-          {/* Weak Topics */}
-          <div className="p-4 rounded-2xl border border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-[#141210]/60">
-            <p className="text-xs font-medium text-stone-500 dark:text-stone-400">
-              Weaker &amp; Uncovered Topics
-            </p>
-            {profile.weakTopics.length === 0 ? (
-              <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">
-                No high-struggle topics flagged yet.
-              </p>
-            ) : (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {profile.weakTopics.slice(0, 6).map((item) => {
-                  const isActive = selectedTopic === item.tag;
-                  return (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      onClick={() => {
-                        setShowSavedOnly(false);
-                        onSelectTopic(isActive ? null : item.tag);
-                      }}
-                      className={`px-2 py-1 text-[11px] font-medium rounded-lg border transition-colors capitalize ${
-                        isActive
-                          ? 'bg-rose-600 border-rose-600 text-white'
-                          : 'bg-white dark:bg-[#1B1917] border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:border-rose-400'
-                      }`}
-                    >
-                      {item.tag} · {item.solvedCount === 0 ? 'Uncovered' : `${item.solvedCount} AC`}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Underexplored Topics */}
-          <div className="p-4 rounded-2xl border border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-[#141210]/60">
-            <p className="text-xs font-medium text-stone-500 dark:text-stone-400">
-              Underexplored Core Topics
-            </p>
-            {profile.underexploredTopics.length === 0 ? (
-              <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">
-                Solid coverage across all core topics.
-              </p>
-            ) : (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {profile.underexploredTopics.slice(0, 5).map((item) => {
-                  const isActive = selectedTopic === item.tag;
-                  return (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      onClick={() => {
-                        setShowSavedOnly(false);
-                        onSelectTopic(isActive ? null : item.tag);
-                      }}
-                      className={`px-2 py-1 text-[11px] font-medium rounded-lg border transition-colors capitalize ${
-                        isActive
-                          ? 'bg-rose-600 border-rose-600 text-white'
-                          : 'bg-white dark:bg-[#1B1917] border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:border-rose-400'
-                      }`}
-                    >
-                      {item.tag} · {item.solvedCount} AC
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Filter Controls Row */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-stone-100 dark:border-stone-800/80">
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Focus Mode */}
-            <div
-              role="group"
-              aria-label="Topic focus mode"
-              className="inline-flex flex-wrap items-center p-1 bg-stone-100 dark:bg-[#141210] border border-stone-200 dark:border-stone-800 rounded-xl"
-            >
-              {FOCUS_MODES.map((m) => (
-                <button
-                  key={m.key}
-                  type="button"
-                  onClick={() => {
-                    setShowSavedOnly(false);
-                    setFocusMode(m.key);
-                  }}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                    !showSavedOnly && focusMode === m.key
-                      ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Difficulty Band */}
-            {!showSavedOnly && focusMode !== 'leftovers' && (
-              <div
-                role="group"
-                aria-label="Difficulty band"
-                className="inline-flex items-center p-1 bg-stone-100 dark:bg-[#141210] border border-stone-200 dark:border-stone-800 rounded-xl"
-              >
-                {DIFFICULTY_BANDS.map((band) => (
-                  <button
-                    key={band.key}
-                    type="button"
-                    title={band.hint}
-                    onClick={() => setDifficultyBand(band.key)}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                      difficultyBand === band.key
-                        ? 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 shadow-xs'
-                        : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                    }`}
-                  >
-                    {band.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Saved Bookmarks Toggle */}
-            <button
-              type="button"
-              onClick={() => setShowSavedOnly((v) => !v)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl border transition-colors whitespace-nowrap shrink-0 ${
-                showSavedOnly
-                  ? 'border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
-                  : 'border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:border-rose-400'
-              }`}
-            >
-              <Bookmark className={`w-3.5 h-3.5 ${showSavedOnly ? 'fill-current' : ''}`} />
-              <span>Saved ({savedBookmarks.length})</span>
-            </button>
-          </div>
-
-          {!showSavedOnly && (
-            <div className="flex items-center gap-2">
-              <label htmlFor="suggested-topic-select" className="text-xs text-stone-500 dark:text-stone-400">
-                Topic:
-              </label>
-              <select
-                id="suggested-topic-select"
-                value={selectedTopic ?? ''}
-                onChange={(e) => onSelectTopic(e.target.value || null)}
-                className="px-2.5 py-1.5 text-xs bg-stone-50 dark:bg-[#141210] border border-stone-200 dark:border-stone-700 rounded-xl text-stone-800 dark:text-stone-200 focus:outline-none focus:ring-2 focus:ring-rose-500 capitalize"
-              >
-                <option value="">All Focus Topics</option>
-                {topicOptions.map((tag) => (
-                  <option key={tag} value={tag}>
-                    {tag}
-                  </option>
-                ))}
-              </select>
-              {selectedTopic && (
-                <button
-                  type="button"
-                  onClick={() => onSelectTopic(null)}
-                  aria-label="Clear topic filter"
-                  className="p-1 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Recommendations or Saved Queue Table */}
-      <section className="bg-white dark:bg-[#1B1917] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-5">
-        <div className="flex items-center justify-between gap-2 mb-4">
-          <h2 className="font-display text-base font-semibold text-stone-900 dark:text-stone-100">
-            {showSavedOnly ? 'Saved Practice Queue' : 'Recommended Queue'}
-          </h2>
-          <span className="text-xs font-mono tabular-nums text-stone-500 dark:text-stone-400">
-            {showSavedOnly
-              ? `${savedBookmarks.length} saved`
-              : loading
-              ? 'Loading official problemset...'
-              : `${suggestions.length} shown of ${totalMatching.toLocaleString()} matches`}
-          </span>
-        </div>
-
+        {/* Problem List */}
         {showSavedOnly ? (
           savedBookmarks.length === 0 ? (
-            <div className="py-12 text-center border border-dashed border-stone-200 dark:border-stone-800 rounded-xl text-sm text-stone-500 dark:text-stone-400">
-              No saved problems yet. Click Save on any recommended or leftover problem to build your short list.
+            <div className="py-10 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-500 dark:text-slate-400">
+              No saved problems yet. Bookmark any problem to keep it here.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-stone-200 dark:border-stone-800 text-stone-500 dark:text-stone-400">
-                    <th className="py-2.5 pr-4 font-medium">Problem</th>
-                    <th className="py-2.5 px-3 text-right font-medium">Rating</th>
-                    <th className="py-2.5 px-3 font-medium">Status</th>
-                    <th className="py-2.5 pl-3 text-right font-medium">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100 dark:divide-stone-800/80">
-                  {savedBookmarks.map((b) => {
-                    const isSolved = solvedKeys.has(b.problemKey);
-                    const url = getProblemUrl({
-                      contestId: b.contestId,
-                      index: b.index,
-                      name: b.name,
-                      type: 'PROGRAMMING',
-                      tags: [],
-                    });
-                    return (
-                      <tr
-                        key={b.problemKey}
-                        className="hover:bg-stone-50 dark:hover:bg-stone-800/40 transition-colors h-11"
+            <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+              {savedBookmarks.map((b) => {
+                const isSolved = solvedKeys.has(b.problemKey);
+                const url = getProblemUrl({
+                  contestId: b.contestId,
+                  index: b.index,
+                  name: b.name,
+                  type: 'PROGRAMMING',
+                  tags: [],
+                });
+                const ratingColor = b.rating ? getRankColor(b.rating) : undefined;
+                return (
+                  <div
+                    key={b.problemKey}
+                    className="py-3 first:pt-1 last:pb-1 flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex items-baseline gap-2.5 flex-wrap">
+                      <span className="font-mono text-xs text-slate-400 dark:text-slate-500 w-12 shrink-0 tabular-nums">
+                        {b.contestId}
+                        {b.index}
+                      </span>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-slate-900 dark:text-slate-100 hover:text-[#0047CC] dark:hover:text-blue-400 truncate"
                       >
-                        <td className="py-2 pr-4 font-medium text-stone-900 dark:text-stone-100">
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 hover:text-rose-600 dark:hover:text-rose-400"
-                          >
-                            <span className="font-mono text-stone-500 dark:text-stone-400">
-                              {b.contestId}
-                              {b.index}
-                            </span>
-                            <span>{b.name}</span>
-                            <ExternalLink className="w-3 h-3 text-stone-400 shrink-0" />
-                          </a>
-                        </td>
-                        <td
-                          className="py-2 px-3 text-right font-mono font-semibold tabular-nums"
-                          style={{ color: b.rating ? getRankColor(b.rating) : undefined }}
+                        {b.name}
+                      </a>
+                      {isSolved && (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium shrink-0">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Solved
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      {b.rating && ratingColor && (
+                        <span
+                          className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums"
+                          style={{
+                            color: ratingColor,
+                            backgroundColor: `${ratingColor}16`,
+                          }}
                         >
-                          {b.rating ?? '—'}
-                        </td>
-                        <td className="py-2 px-3 whitespace-nowrap">
-                          {isSolved ? (
-                            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Solved
-                            </span>
-                          ) : (
-                            <span className="text-stone-500 dark:text-stone-400">Queued</span>
-                          )}
-                        </td>
-                        <td className="py-2 pl-3 text-right">
-                          <button
-                            type="button"
-                            disabled={busyKey === b.problemKey}
-                            onClick={() =>
-                              void handleBookmarkClick({
-                                problemKey: b.problemKey,
-                                contestId: b.contestId,
-                                index: b.index,
-                                name: b.name,
-                                rating: b.rating,
-                              })
-                            }
-                            className="text-xs font-medium text-stone-500 dark:text-stone-400 hover:text-rose-600 dark:hover:text-rose-400"
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          {b.rating}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        disabled={busyKey === b.problemKey}
+                        onClick={() =>
+                          void handleBookmarkClick({
+                            problemKey: b.problemKey,
+                            contestId: b.contestId,
+                            index: b.index,
+                            name: b.name,
+                            rating: b.rating,
+                          })
+                        }
+                        title="Remove saved problem"
+                        aria-label="Remove saved problem"
+                        className="text-xs font-medium text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                      >
+                        Remove
+                      </button>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 hover:bg-[#0047CC] text-[#0047CC] hover:text-white dark:bg-blue-950/45 dark:text-blue-300 dark:hover:bg-blue-600 dark:hover:text-white transition-colors whitespace-nowrap"
+                      >
+                        <span>Solve</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )
         ) : error ? (
-          <div className="py-10 text-center border border-dashed border-rose-200 dark:border-rose-900/60 rounded-xl">
-            <p className="text-sm font-medium text-rose-700 dark:text-rose-300">{error}</p>
+          <div className="py-10 text-center border border-dashed border-red-200 dark:border-red-900/60 rounded-xl">
+            <p className="text-sm font-medium text-red-700 dark:text-red-300">{error}</p>
             <button
               type="button"
               onClick={() => void loadProblemset(true)}
-              className="mt-3 px-4 py-1.5 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 text-white transition-colors"
+              className="mt-3 px-4 py-1.5 text-xs font-semibold rounded-xl bg-red-600 hover:bg-red-700 text-white transition-colors"
             >
-              Retry Problemset Fetch
+              Retry
             </button>
           </div>
         ) : loading ? (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
-                className="h-11 rounded-lg bg-stone-100 dark:bg-stone-800/60 animate-pulse"
+                className="h-12 rounded-xl bg-slate-100 dark:bg-slate-800/60 animate-pulse"
               />
             ))}
           </div>
         ) : suggestions.length === 0 ? (
-          <div className="py-12 text-center border border-dashed border-stone-200 dark:border-stone-800 rounded-xl">
-            <p className="text-sm text-stone-600 dark:text-stone-300">
-              {focusMode === 'leftovers'
-                ? 'No unsolved previously attempted problems matched these filters.'
-                : `No unsolved problems matched these exact filters in ${ratingRange[0]}–${ratingRange[1]}.`}
+          <div className="py-10 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              {`No unsolved problems matched in ${ratingRange[0]}–${ratingRange[1]}.`}
             </p>
-            <div className="mt-3 flex items-center justify-center gap-3">
+            <div className="mt-3 flex items-center justify-center gap-2.5">
               {selectedTopic && (
                 <button
                   type="button"
                   onClick={() => onSelectTopic(null)}
-                  className="px-3.5 py-1.5 text-xs font-medium rounded-xl border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800"
+                  className="px-3.5 py-1.5 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
-                  Clear Topic Filter
+                  Clear Topic
                 </button>
               )}
               {focusMode !== 'all' && (
                 <button
                   type="button"
                   onClick={() => setFocusMode('all')}
-                  className="px-3.5 py-1.5 text-xs font-medium rounded-xl bg-rose-600 text-white hover:bg-rose-700"
+                  className="px-3.5 py-1.5 text-xs font-medium rounded-xl bg-[#0047CC] text-white hover:bg-[#0039A6] dark:bg-blue-600 dark:hover:bg-blue-500"
                 >
-                  Switch to All Focus
+                  Show All
                 </button>
               )}
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-stone-200 dark:border-stone-800 text-stone-500 dark:text-stone-400">
-                  <th className="py-2.5 pr-4 font-medium">Problem</th>
-                  <th className="py-2.5 px-3 text-right font-medium">Rating</th>
-                  <th className="py-2.5 px-3 font-medium">Why Suggested</th>
-                  <th className="py-2.5 px-3 font-medium">Topics</th>
-                  <th className="py-2.5 px-3 text-right font-medium">CF Solves</th>
-                  <th className="py-2.5 pl-3 text-right font-medium">Save</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100 dark:divide-stone-800/80">
-                {suggestions.map((p) => {
-                  const isSaved = bookmarkStatusMap.get(p.key) === 'saved';
-                  return (
-                    <tr
-                      key={p.key}
-                      className="hover:bg-stone-50 dark:hover:bg-stone-800/40 transition-colors h-11"
-                    >
-                      <td className="py-2 pr-4 font-medium text-stone-900 dark:text-stone-100">
+          <>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+              {suggestions.map((p) => {
+                const isSaved = bookmarkStatusMap.get(p.key) === 'saved';
+                const rankColor = getRankColor(p.rating);
+                return (
+                  <div
+                    key={p.key}
+                    className="py-2.5 sm:py-3 first:pt-1 last:pb-1 flex items-center justify-between gap-3 hover:bg-slate-50/70 dark:hover:bg-slate-800/25 sm:-mx-2 sm:px-2 rounded-xl transition-colors"
+                  >
+                    <div className="min-w-0 flex-1 flex items-baseline gap-2.5">
+                      <span className="font-mono text-xs text-slate-400 dark:text-slate-500 w-12 shrink-0 tabular-nums">
+                        {p.contestId}
+                        {p.index}
+                      </span>
+                      <div className="min-w-0 flex-1">
                         <a
                           href={p.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 hover:text-rose-600 dark:hover:text-rose-400"
+                          className="block text-sm font-medium text-slate-900 dark:text-slate-100 hover:text-[#0047CC] dark:hover:text-blue-400 truncate"
                         >
-                          <span className="font-mono text-stone-500 dark:text-stone-400">
-                            {p.contestId}
-                            {p.index}
-                          </span>
-                          <span>{p.name}</span>
-                          <ExternalLink className="w-3 h-3 text-stone-400 shrink-0" />
+                          {p.name}
                         </a>
-                      </td>
-                      <td
-                        className="py-2 px-3 text-right font-mono font-semibold tabular-nums"
-                        style={{ color: getRankColor(p.rating) }}
+                        {p.tags.length > 0 && (
+                          <div className="mt-1 hidden sm:flex items-center gap-1.5 flex-wrap">
+                            {p.tags.slice(0, 2).map((tag) => (
+                              <span
+                                key={tag}
+                                className="px-1.5 py-0.5 rounded-md bg-slate-100/90 dark:bg-slate-800/80 text-[10px] font-medium text-slate-500 dark:text-slate-400 capitalize"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <span
+                        className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums"
+                        style={{
+                          color: rankColor,
+                          backgroundColor: `${rankColor}16`,
+                        }}
                       >
                         {p.rating}
-                      </td>
-                      <td className="py-2 px-3 text-stone-600 dark:text-stone-300 max-w-[260px] truncate">
-                        {p.reasonText}
-                      </td>
-                      <td className="py-2 px-3 text-stone-500 dark:text-stone-400 max-w-[220px] truncate">
-                        {p.tags.slice(0, 4).join(' · ')}
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono tabular-nums text-stone-500 dark:text-stone-400">
-                        {p.solvedCount.toLocaleString()}
-                      </td>
-                      <td className="py-2 pl-3 text-right">
-                        <button
-                          type="button"
-                          disabled={busyKey === p.key}
-                          onClick={() =>
-                            void handleBookmarkClick({
-                              problemKey: p.key,
-                              contestId: p.contestId,
-                              index: p.index,
-                              name: p.name,
-                              rating: p.rating,
-                            })
-                          }
-                          aria-label={isSaved ? 'Remove bookmark' : 'Save problem to queue'}
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
-                            isSaved
-                              ? 'border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
-                              : 'border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:border-rose-400'
-                          }`}
-                        >
-                          <Bookmark className={`w-3 h-3 ${isSaved ? 'fill-current' : ''}`} />
-                          <span>{isSaved ? 'Saved' : 'Save'}</span>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </span>
+
+                      <button
+                        type="button"
+                        disabled={busyKey === p.key}
+                        onClick={() =>
+                          void handleBookmarkClick({
+                            problemKey: p.key,
+                            contestId: p.contestId,
+                            index: p.index,
+                            name: p.name,
+                            rating: p.rating,
+                          })
+                        }
+                        title={isSaved ? 'Remove bookmark' : 'Save problem'}
+                        aria-label={isSaved ? 'Remove bookmark' : 'Save problem'}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          isSaved
+                            ? 'text-[#0047CC] dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40'
+                            : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        <Bookmark className={`w-3.5 h-3.5 ${isSaved ? 'fill-current' : ''}`} />
+                      </button>
+
+                      <a
+                        href={p.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 hover:bg-[#0047CC] text-[#0047CC] hover:text-white dark:bg-blue-950/45 dark:text-blue-300 dark:hover:bg-blue-600 dark:hover:text-white transition-colors whitespace-nowrap"
+                      >
+                        <span>Solve</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {totalMatching > 20 && (
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-3">
+                <span className="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={pageOffset === 0}
+                    onClick={() => setPageOffset((prev) => Math.max(0, prev - 1))}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 transition-colors"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Previous</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPageOffset((prev) => prev + 1)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <span>Next 20</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>
